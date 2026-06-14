@@ -32,9 +32,9 @@ export function entryGroups(category: Category, products: Product[]): EntryGroup
     const sizes = [...order.keys()].sort((a, b) => (order.get(a)! - order.get(b)!));
     return sizes.map((size) => ({
       key: size,
-      label: `ราง ${size}`,
-      en: `Rail ${size}`,
-      unit: items.find((p) => p.size === size)?.unit ?? "",
+      label: size === "—" ? "ราง (ไม่ระบุขนาด)" : `ราง ${size}`,
+      en: size === "—" ? "Other rails" : `Rail ${size}`,
+      unit: items.find((p) => (p.size ?? "—") === size)?.unit ?? "",
       items: items
         .filter((p) => (p.size ?? "—") === size)
         .sort((a, b) => (a.length_m ?? 0) - (b.length_m ?? 0)),

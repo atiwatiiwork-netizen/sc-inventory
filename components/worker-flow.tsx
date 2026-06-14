@@ -442,7 +442,7 @@ function EntryScreen({
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
                           {g.items.map((p) => (
                             <div key={p.id}>
-                              <div style={{ fontSize: 11, color: "var(--ink-3)", textAlign: "center", marginBottom: 3 }}>{p.length}</div>
+                              <div style={{ fontSize: 11, color: "var(--ink-3)", textAlign: "center", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.name}>{p.length || p.name}</div>
                               <input
                                 className="tnum focusable"
                                 inputMode="numeric"
