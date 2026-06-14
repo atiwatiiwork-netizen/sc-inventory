@@ -18,12 +18,14 @@ export async function submitUsage(input: {
   date: string;
   group: string | null;
   noUsage: boolean;
+  categoryId: string | null;
   lines: UsageLine[];
 }): Promise<SubmitResult> {
   const session = await getWorkerSession();
   if (!session) return { ok: false, error: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };
 
   if (!input.noUsage && !input.group) return { ok: false, error: "กรุณาเลือกกลุ่มลูกค้า" };
+  if (!input.noUsage && !input.categoryId) return { ok: false, error: "กรุณาเลือกหมวดหมู่" };
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return { ok: false, error: "ยังไม่ได้ตั้งค่า Supabase — ดูไฟล์ README" };
@@ -37,6 +39,7 @@ export async function submitUsage(input: {
     p_date: input.date,
     p_group: input.noUsage ? null : input.group,
     p_no_usage: input.noUsage,
+    p_category: input.noUsage ? null : input.categoryId,
     p_lines: lines,
   });
   if (error) return { ok: false, error: error.message };

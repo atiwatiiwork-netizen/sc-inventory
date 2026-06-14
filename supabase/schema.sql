@@ -287,13 +287,17 @@ $$;
 -- Worker daily usage → daily_submissions header + submission_items + mirrored
 -- 'out' transactions (qty negative, linked via submission_id) + stock decrement.
 -- Idempotent for the same (worker, date): re-submitting reverses the previous
--- effect first, so a worker can edit today's submission cleanly.
+-- effect first. Worker flow is CATEGORY-first: each submit carries one category
+-- (p_category) and MERGES into the group's submission — replacing only that
+-- category's items, keeping other categories intact, so a group can accumulate
+-- rails + screws + … across several recordings. p_no_usage records a marker.
 -- p_lines: jsonb array of { "product_id": uuid, "qty": int }.
 create or replace function public.submit_daily_usage(
   p_worker   uuid,
   p_date     date,
   p_group    text,
   p_no_usage boolean,
+  p_category text,
   p_lines    jsonb
 ) returns uuid
 language plpgsql
@@ -309,53 +313,57 @@ declare
 begin
   select code into w_code from public.workers where id = p_worker;
 
-  -- match the existing record for THIS customer group (or the no-usage record),
-  -- so different groups accumulate instead of overwriting each other.
+  -- "no usage today" marker (no group, no category)
   if p_no_usage then
     select id into sub_id from public.daily_submissions
-      where worker_id = p_worker and usage_date = p_date and no_usage = true
-      limit 1;
-  else
-    select id into sub_id from public.daily_submissions
-      where worker_id = p_worker and usage_date = p_date
-        and customer_group_id is not distinct from p_group
-      limit 1;
+      where worker_id = p_worker and usage_date = p_date and no_usage = true limit 1;
+    if sub_id is null then
+      insert into public.daily_submissions(worker_id, usage_date, customer_group_id, no_usage, status)
+      values (p_worker, p_date, null, true, 'submitted') returning id into sub_id;
+    else
+      update public.daily_submissions set submitted_at = now() where id = sub_id;
+    end if;
+    insert into public.audit_log(who, action, detail)
+    values (coalesce(w_code, 'worker'), 'ส่งข้อมูลการใช้ประจำวัน', format('ไม่มีการใช้งาน · วันที่ %s', p_date));
+    return sub_id;
   end if;
 
-  if sub_id is not null then
-    -- reverse only THIS group's previous stock effect (edit case)
-    for prev in
-      select product_id, qty from public.stock_transactions
-      where submission_id = sub_id and type = 'out'
-    loop
-      -- prev.qty is negative; subtracting it restores the stock
-      update public.products set stock = stock - prev.qty where id = prev.product_id;
-    end loop;
-    delete from public.stock_transactions where submission_id = sub_id;
-    delete from public.submission_items   where submission_id = sub_id;
-    update public.daily_submissions
-      set customer_group_id = p_group, no_usage = p_no_usage,
-          status = 'submitted', submitted_at = now()
-      where id = sub_id;
-  else
+  -- find/create the submission for THIS customer group
+  select id into sub_id from public.daily_submissions
+    where worker_id = p_worker and usage_date = p_date
+      and customer_group_id is not distinct from p_group and no_usage = false
+    limit 1;
+  if sub_id is null then
     insert into public.daily_submissions(worker_id, usage_date, customer_group_id, no_usage, status)
-    values (p_worker, p_date, p_group, p_no_usage, 'submitted')
-    returning id into sub_id;
+    values (p_worker, p_date, p_group, false, 'submitted') returning id into sub_id;
+  else
+    update public.daily_submissions set submitted_at = now() where id = sub_id;
   end if;
 
-  if not p_no_usage then
-    for line in select * from jsonb_array_elements(p_lines)
-    loop
-      pid := (line->>'product_id')::uuid;
-      n   := (line->>'qty')::int;
-      if pid is null or n is null or n = 0 then continue; end if;
-      insert into public.submission_items(submission_id, product_id, qty)
-      values (sub_id, pid, n);
-      insert into public.stock_transactions(txn_date, product_id, type, qty, note, created_by, submission_id)
-      values (p_date, pid, 'out', -n, 'การใช้ประจำวัน', coalesce(w_code, 'worker'), sub_id);
-      update public.products set stock = stock - n where id = pid;
-    end loop;
-  end if;
+  -- reverse + clear ONLY this category's previous items (merge, not overwrite)
+  for prev in
+    select st.product_id, st.qty
+    from public.stock_transactions st join public.products p on p.id = st.product_id
+    where st.submission_id = sub_id and st.type = 'out' and p.category_id = p_category
+  loop
+    update public.products set stock = stock - prev.qty where id = prev.product_id;
+  end loop;
+  delete from public.stock_transactions st using public.products p
+    where st.product_id = p.id and st.submission_id = sub_id and st.type = 'out' and p.category_id = p_category;
+  delete from public.submission_items si using public.products p
+    where si.product_id = p.id and si.submission_id = sub_id and p.category_id = p_category;
+
+  -- insert this category's new lines
+  for line in select * from jsonb_array_elements(p_lines)
+  loop
+    pid := (line->>'product_id')::uuid;
+    n   := (line->>'qty')::int;
+    if pid is null or n is null or n = 0 then continue; end if;
+    insert into public.submission_items(submission_id, product_id, qty) values (sub_id, pid, n);
+    insert into public.stock_transactions(txn_date, product_id, type, qty, note, created_by, submission_id)
+    values (p_date, pid, 'out', -n, 'การใช้ประจำวัน', coalesce(w_code, 'worker'), sub_id);
+    update public.products set stock = stock - n where id = pid;
+  end loop;
 
   insert into public.audit_log(who, action, detail)
   values (coalesce(w_code, 'worker'), 'ส่งข้อมูลการใช้ประจำวัน',

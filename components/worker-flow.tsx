@@ -17,7 +17,8 @@ export type ExistingSubmission = {
   time: string;
 };
 
-type Step = "summary" | "pick" | "catpick" | "entry" | "review" | "success";
+// Worker flow is CATEGORY-first: catpick → pick (customer group) → entry → review.
+type Step = "catpick" | "pick" | "entry" | "review" | "success" | "summary";
 
 export function WorkerFlow({
   worker,
@@ -35,21 +36,26 @@ export function WorkerFlow({
   existing: ExistingSubmission[];
 }) {
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
+  const catIdsByCat = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const c of categories) m.set(c.id, new Set(products.filter((p) => p.category_id === c.id).map((p) => p.id)));
+    return m;
+  }, [categories, products]);
   const router = useRouter();
 
-  // local mirror of today's submissions so the UI updates without a round-trip
   const [subs, setSubs] = useState<ExistingSubmission[]>(existing);
-  const [step, setStep] = useState<Step>(existing.length ? "summary" : "pick");
+  const [step, setStep] = useState<Step>("catpick");
   const [date] = useState(today);
+  const [currentCat, setCurrentCat] = useState<string | null>(null);
   const [group, setGroup] = useState<string | null>(null);
   const [noUsage, setNoUsage] = useState(false);
   const [qty, setQty] = useState<Record<string, number>>({});
-  const [currentCat, setCurrentCat] = useState<string>(categories[0]?.id ?? "");
   const [time, setTime] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   const groupName = (id: string | null) => customerGroups.find((g) => g.id === id)?.name;
+  const catName = (id: string | null) => categories.find((c) => c.id === id)?.name;
   const setOne = (id: string, val: number | string) =>
     setQty((q) => {
       const n = { ...q };
@@ -60,103 +66,97 @@ export function WorkerFlow({
     });
 
   const total = sumQty(qty);
-  const submittedGroupIds = new Set(subs.filter((s) => !s.noUsage && s.group).map((s) => s.group as string));
 
-  const startNew = () => {
-    setGroup(null);
+  // how much of a category has been recorded today across all groups
+  const catTotalToday = (catId: string) => {
+    const ids = catIdsByCat.get(catId) ?? new Set();
+    let t = 0;
+    for (const s of subs) {
+      if (s.noUsage) continue;
+      for (const [id, q] of Object.entries(s.items)) if (ids.has(id)) t += q;
+    }
+    return t;
+  };
+  // groups that already have items for the current category
+  const groupsWithCat = (catId: string) => {
+    const ids = catIdsByCat.get(catId) ?? new Set();
+    return new Set(subs.filter((s) => !s.noUsage && s.group && Object.entries(s.items).some(([id, q]) => ids.has(id) && q > 0)).map((s) => s.group as string));
+  };
+
+  const pickCat = (catId: string) => {
+    setCurrentCat(catId);
     setNoUsage(false);
-    setQty({});
     setError(null);
     setStep("pick");
   };
 
-  const onPick = (g: string) => {
+  const pickGroup = (g: string) => {
+    const ids = catIdsByCat.get(currentCat ?? "") ?? new Set();
     const ex = subs.find((s) => !s.noUsage && s.group === g);
+    const prefill = ex ? Object.fromEntries(Object.entries(ex.items).filter(([id]) => ids.has(id))) : {};
     setGroup(g);
-    setNoUsage(false);
-    setQty(ex ? { ...ex.items } : {});
-    setStep("catpick"); // choose a product category to fill next
-  };
-
-  const onPickCat = (catId: string) => {
-    setCurrentCat(catId);
+    setQty(prefill);
     setStep("entry");
   };
 
-  const onNoUsage = () => {
-    const ex = subs.find((s) => s.noUsage);
-    setGroup(null);
+  const startNoUsage = () => {
     setNoUsage(true);
-    setQty(ex ? { ...ex.items } : {});
+    setGroup(null);
+    setCurrentCat(null);
+    setQty({});
+    setError(null);
     setStep("review");
-  };
-
-  const editSub = (s: ExistingSubmission) => {
-    setGroup(s.group);
-    setNoUsage(s.noUsage);
-    setQty({ ...s.items });
-    setStep(s.noUsage ? "review" : "entry");
   };
 
   const confirm = () => {
     setError(null);
     const lines = Object.entries(qty).map(([product_id, q]) => ({ product_id, qty: q }));
     start(async () => {
-      const res = await submitUsage({ date, group, noUsage, lines });
+      const res = await submitUsage({ date, group, noUsage, categoryId: currentCat, lines });
       if (!res.ok) {
         setError(res.error || "ส่งข้อมูลไม่สำเร็จ");
         return;
       }
       const t = res.time ?? new Date().toTimeString().slice(0, 5);
       setTime(t);
-      // upsert into the local mirror (replace same group / no-usage, else append)
       setSubs((prev) => {
-        const key = noUsage ? "__no_usage__" : group;
-        const without = prev.filter((s) => (s.noUsage ? "__no_usage__" : s.group) !== key);
-        return [...without, { group: noUsage ? null : group, noUsage, items: { ...qty }, time: t }];
+        if (noUsage) {
+          const kept = prev.filter((s) => !s.noUsage);
+          return [...kept, { group: null, noUsage: true, items: {}, time: t }];
+        }
+        const ids = catIdsByCat.get(currentCat ?? "") ?? new Set();
+        const ex = prev.find((s) => !s.noUsage && s.group === group);
+        const otherItems = ex ? Object.fromEntries(Object.entries(ex.items).filter(([id]) => !ids.has(id))) : {};
+        const merged = { ...otherItems, ...qty };
+        const kept = prev.filter((s) => s.noUsage || s.group !== group);
+        return [...kept, { group, noUsage: false, items: merged, time: t }];
       });
       setStep("success");
-      router.refresh(); // keep server data fresh for admin views
+      router.refresh();
     });
   };
 
   return (
     <Shell>
-      {step === "summary" && (
-        <SummaryScreen
+      {step === "catpick" && (
+        <CatPickScreen
           worker={worker}
-          subs={subs}
-          byId={byId}
-          groupName={groupName}
-          onAdd={startNew}
-          onEdit={editSub}
+          categories={categories}
+          catTotalToday={catTotalToday}
+          hasSubs={subs.length > 0}
+          onPickCat={pickCat}
+          onNoUsage={startNoUsage}
+          onSummary={() => setStep("summary")}
         />
       )}
 
       {step === "pick" && (
         <PickScreen
-          worker={worker}
-          date={date}
+          catName={catName(currentCat)}
           customerGroups={customerGroups}
-          submittedGroupIds={submittedGroupIds}
-          canBack={subs.length > 0}
-          onBack={() => setStep("summary")}
-          onPick={onPick}
-          onNoUsage={onNoUsage}
-        />
-      )}
-
-      {step === "catpick" && (
-        <CatPickScreen
-          categories={categories}
-          products={products}
-          qty={qty}
-          groupName={groupName(group)}
-          total={total}
-          editing={submittedGroupIds.has(group ?? "")}
-          onBack={() => setStep("pick")}
-          onPickCat={onPickCat}
-          onReview={() => setStep("review")}
+          doneGroups={groupsWithCat(currentCat ?? "")}
+          onBack={() => setStep("catpick")}
+          onPick={pickGroup}
         />
       )}
 
@@ -167,7 +167,9 @@ export function WorkerFlow({
           qty={qty}
           setOne={setOne}
           groupName={groupName(group)}
-          onBack={() => setStep("catpick")}
+          total={total}
+          onBack={() => setStep("pick")}
+          onNext={() => setStep("review")}
         />
       )}
 
@@ -176,26 +178,31 @@ export function WorkerFlow({
           date={date}
           group={group}
           groupName={groupName(group)}
+          catName={catName(currentCat)}
           noUsage={noUsage}
           qty={qty}
           byId={byId}
           error={error}
           pending={pending}
-          onEdit={() => setStep(noUsage ? "pick" : "catpick")}
+          onEdit={() => setStep(noUsage ? "catpick" : "entry")}
           onConfirm={confirm}
         />
       )}
 
       {step === "success" && (
         <SuccessScreen
+          catName={catName(currentCat)}
           groupName={groupName(group)}
           noUsage={noUsage}
           total={total}
           time={time}
-          remainingGroups={customerGroups.length - submittedGroupIds.size}
-          onAddAnother={startNew}
+          onAnother={() => setStep("catpick")}
           onDone={() => setStep("summary")}
         />
+      )}
+
+      {step === "summary" && (
+        <SummaryScreen worker={worker} subs={subs} groupName={groupName} onAdd={() => setStep("catpick")} />
       )}
     </Shell>
   );
@@ -225,23 +232,24 @@ function LogoutBtn() {
   );
 }
 
-/* ---------- today summary (multiple groups) ---------- */
-function SummaryScreen({
+/* ---------- 1) category picker (landing) ---------- */
+function CatPickScreen({
   worker,
-  subs,
-  byId,
-  groupName,
-  onAdd,
-  onEdit,
+  categories,
+  catTotalToday,
+  hasSubs,
+  onPickCat,
+  onNoUsage,
+  onSummary,
 }: {
   worker: { name: string; code: string };
-  subs: ExistingSubmission[];
-  byId: Map<string, Product>;
-  groupName: (id: string | null) => string | undefined;
-  onAdd: () => void;
-  onEdit: (s: ExistingSubmission) => void;
+  categories: Category[];
+  catTotalToday: (catId: string) => number;
+  hasSubs: boolean;
+  onPickCat: (catId: string) => void;
+  onNoUsage: () => void;
+  onSummary: () => void;
 }) {
-  const grand = subs.reduce((s, x) => s + (x.noUsage ? 0 : sumQty(x.items)), 0);
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 18px 14px" }}>
@@ -252,227 +260,128 @@ function SummaryScreen({
         <LogoutBtn />
       </div>
 
-      <div style={{ padding: "4px 18px 18px", display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>บันทึกวันนี้</div>
-            <div className="en" style={{ fontSize: 12 }}>Today&apos;s submissions · {subs.length} กลุ่ม</div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11.5, color: "var(--ink-3)" }}>รวมทั้งวัน</div>
-            <div className="tnum" style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)" }}>{grand} <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-3)" }}>รายการ</span></div>
-          </div>
-        </div>
-
-        {subs.map((s, i) => {
-          const t = s.noUsage ? 0 : sumQty(s.items);
-          return (
-            <button
-              key={i}
-              onClick={() => onEdit(s)}
-              className="card focusable"
-              style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 13, textAlign: "left", border: "1px solid var(--border)" }}
-            >
-              <span style={{ width: 42, height: 42, borderRadius: 12, background: s.noUsage ? "var(--surface-3)" : "var(--accent-soft)", color: s.noUsage ? "var(--ink-3)" : "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-                <Icon name={s.noUsage ? "x" : (GROUP_ICON[s.group ?? ""] as IconName) || "users"} size={22} />
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15.5, fontWeight: 600 }}>{s.noUsage ? "ไม่มีการใช้งานวันนี้" : groupName(s.group)}</div>
-                <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{s.noUsage ? "—" : `${t} รายการ`} · ส่ง {s.time} น.</div>
-              </div>
-              <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--ink-4)", fontSize: 12.5, fontWeight: 600 }}>
-                แก้ไข <Icon name="chevR" size={16} />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
-        <Btn kind="primary" size="lg" full icon="plus" onClick={onAdd} style={{ boxShadow: "var(--sh-2)" }}>
-          บันทึกกลุ่มลูกค้าอื่น <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Add another group</span>
-        </Btn>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- pick (date + customer group) ---------- */
-function PickScreen({
-  worker,
-  date,
-  customerGroups,
-  submittedGroupIds,
-  canBack,
-  onBack,
-  onPick,
-  onNoUsage,
-}: {
-  worker: { name: string; code: string };
-  date: string;
-  customerGroups: CustomerGroup[];
-  submittedGroupIds: Set<string>;
-  canBack: boolean;
-  onBack: () => void;
-  onPick: (g: string) => void;
-  onNoUsage: () => void;
-}) {
-  const fmt = new Date(date).toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long" });
-  return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 18px 14px" }}>
-        {canBack && (
-          <button onClick={onBack} style={{ border: "none", background: "var(--surface-3)", borderRadius: 11, width: 38, height: 38, color: "var(--ink-2)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-            <Icon name="chevL" size={20} />
-          </button>
-        )}
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.01em" }}>สวัสดี {worker.name}</div>
-          <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{worker.code}</div>
-        </div>
-        {!canBack && <LogoutBtn />}
-      </div>
-      <div style={{ padding: "4px 18px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
-        <div>
-          <Label th="วันที่ใช้งาน" en="Usage date" />
-          <div className="card" style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
-            <span style={{ color: "var(--accent)" }}><Icon name="calendar" size={22} /></span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 600, textTransform: "capitalize" }}>{fmt}</div>
-              <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{date} · วันนี้</div>
-            </div>
-          </div>
-        </div>
-        <div>
-          <Label th="กลุ่มลูกค้า" en="Customer group · tap one" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-            {customerGroups.map((g) => {
-              const done = submittedGroupIds.has(g.id);
-              return (
-                <button
-                  key={g.id}
-                  onClick={() => onPick(g.id)}
-                  className="card focusable"
-                  style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 14, textAlign: "left", border: "1px solid var(--border)" }}
-                >
-                  <span style={{ width: 46, height: 46, borderRadius: 13, background: "var(--accent-soft)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-                    <Icon name={(GROUP_ICON[g.id] as IconName) || "users"} size={24} />
-                  </span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 17, fontWeight: 600 }}>{g.name}</div>
-                    <div className="en" style={{ fontSize: 12 }}>{g.name_en}</div>
-                  </div>
-                  {done ? <span className="pill green">บันทึกแล้ว · แก้ไข</span> : <Icon name="chevR" size={20} style={{ color: "var(--ink-4)" }} />}
-                </button>
-              );
-            })}
-            <button
-              onClick={onNoUsage}
-              className="focusable"
-              style={{ padding: "15px 18px", display: "flex", alignItems: "center", gap: 14, textAlign: "left", borderRadius: 14, border: "1.5px dashed var(--border-2)", background: "transparent", color: "var(--ink-2)" }}
-            >
-              <span style={{ width: 46, height: 46, borderRadius: 13, background: "var(--surface-3)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-                <Icon name="x" size={22} />
-              </span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>วันนี้ไม่มีการใช้งาน</div>
-                <div className="en" style={{ fontSize: 12 }}>No usage today</div>
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- category picker (choose which category to fill) ---------- */
-function CatPickScreen({
-  categories,
-  products,
-  qty,
-  groupName,
-  total,
-  editing,
-  onBack,
-  onPickCat,
-  onReview,
-}: {
-  categories: Category[];
-  products: Product[];
-  qty: Record<string, number>;
-  groupName?: string;
-  total: number;
-  editing: boolean;
-  onBack: () => void;
-  onPickCat: (catId: string) => void;
-  onReview: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 14px 10px" }}>
-        <button onClick={onBack} style={{ border: "none", background: "var(--surface-3)", borderRadius: 11, width: 38, height: 38, color: "var(--ink-2)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-          <Icon name="chevL" size={20} />
-        </button>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>เลือกหมวดหมู่{editing ? " (แก้ไข)" : ""}</div>
-          <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{groupName}</div>
-        </div>
-        {total > 0 && <span className="pill blue tnum">{total} รายการรวม</span>}
-      </div>
-
-      <div style={{ padding: "8px 16px 120px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: "4px 18px 22px", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+        <Label th="เลือกหมวดหมู่สินค้า" en="Choose a product category" />
         {categories.map((c) => {
-          const items = products.filter((p) => p.category_id === c.id && p.active);
-          const catTotal = items.reduce((s, p) => s + (qty[p.id] || 0), 0);
+          const t = catTotalToday(c.id);
           return (
             <button
               key={c.id}
               onClick={() => onPickCat(c.id)}
               className="card focusable"
-              style={{ padding: "15px 16px", display: "flex", alignItems: "center", gap: 13, textAlign: "left", border: "1px solid var(--border)" }}
+              style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 14, textAlign: "left", border: "1px solid var(--border)" }}
             >
-              <span style={{ width: 44, height: 44, borderRadius: 12, background: catTotal > 0 ? "var(--accent-soft)" : "var(--surface-3)", color: catTotal > 0 ? "var(--accent)" : "var(--ink-3)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
-                <Icon name={(CAT_ICON[c.id] as IconName) || "box"} size={22} />
+              <span style={{ width: 46, height: 46, borderRadius: 13, background: t > 0 ? "var(--accent-soft)" : "var(--surface-3)", color: t > 0 ? "var(--accent)" : "var(--ink-3)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                <Icon name={(CAT_ICON[c.id] as IconName) || "box"} size={24} />
               </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>{c.name}</div>
-                <div className="en" style={{ fontSize: 11.5 }}>{c.name_en} · {items.length} รายการ</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 17, fontWeight: 600 }}>{c.name}</div>
+                <div className="en" style={{ fontSize: 12 }}>{c.name_en}</div>
               </div>
-              {catTotal > 0 ? <span className="pill blue tnum">{catTotal}</span> : <Icon name="chevR" size={20} style={{ color: "var(--ink-4)" }} />}
+              {t > 0 ? <span className="pill blue tnum">{t}</span> : <Icon name="chevR" size={20} style={{ color: "var(--ink-4)" }} />}
             </button>
           );
         })}
+
+        <button
+          onClick={onNoUsage}
+          className="focusable"
+          style={{ padding: "15px 18px", display: "flex", alignItems: "center", gap: 14, textAlign: "left", borderRadius: 14, border: "1.5px dashed var(--border-2)", background: "transparent", color: "var(--ink-2)", marginTop: 4 }}
+        >
+          <span style={{ width: 46, height: 46, borderRadius: 13, background: "var(--surface-3)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+            <Icon name="x" size={22} />
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>วันนี้ไม่มีการใช้งาน</div>
+            <div className="en" style={{ fontSize: 12 }}>No usage today</div>
+          </div>
+        </button>
       </div>
 
-      <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
-        <Btn kind="primary" size="lg" full disabled={total === 0} style={{ opacity: total === 0 ? 0.5 : 1, boxShadow: "var(--sh-2)" }} onClick={() => total > 0 && onReview()}>
-          ตรวจทานก่อนส่ง <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Review</span> · {total} รายการ
-        </Btn>
+      {hasSubs && (
+        <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
+          <Btn kind="soft" size="lg" full icon="doc" onClick={onSummary}>
+            ดูสรุปวันนี้ <span className="en">Today&apos;s summary</span>
+          </Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- 2) customer-group picker ---------- */
+function PickScreen({
+  catName,
+  customerGroups,
+  doneGroups,
+  onBack,
+  onPick,
+}: {
+  catName?: string;
+  customerGroups: CustomerGroup[];
+  doneGroups: Set<string>;
+  onBack: () => void;
+  onPick: (g: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 14px 12px" }}>
+        <button onClick={onBack} style={{ border: "none", background: "var(--surface-3)", borderRadius: 11, width: 38, height: 38, color: "var(--ink-2)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+          <Icon name="chevL" size={20} />
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>เลือกกลุ่มลูกค้า</div>
+          <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{catName}</div>
+        </div>
+      </div>
+      <div style={{ padding: "4px 18px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {customerGroups.map((g) => {
+          const done = doneGroups.has(g.id);
+          return (
+            <button
+              key={g.id}
+              onClick={() => onPick(g.id)}
+              className="card focusable"
+              style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 14, textAlign: "left", border: "1px solid var(--border)" }}
+            >
+              <span style={{ width: 46, height: 46, borderRadius: 13, background: "var(--accent-soft)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                <Icon name={(GROUP_ICON[g.id] as IconName) || "users"} size={24} />
+              </span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 17, fontWeight: 600 }}>{g.name}</div>
+                <div className="en" style={{ fontSize: 12 }}>{g.name_en}</div>
+              </div>
+              {done ? <span className="pill green">บันทึกแล้ว · แก้ไข</span> : <Icon name="chevR" size={20} style={{ color: "var(--ink-4)" }} />}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-/* ---------- entry for ONE category (grouped) ---------- */
+/* ---------- 3) entry for one category ---------- */
 function EntryScreen({
   category,
   products,
   qty,
   setOne,
   groupName,
+  total,
   onBack,
+  onNext,
 }: {
   category: Category | undefined;
   products: Product[];
   qty: Record<string, number>;
   setOne: (id: string, v: number | string) => void;
   groupName?: string;
+  total: number;
   onBack: () => void;
+  onNext: () => void;
 }) {
   if (!category) return null;
   const groups = entryGroups(category, products);
-  const catTotal = groups.flatMap((g) => g.items).reduce((s, p) => s + (qty[p.id] || 0), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -485,7 +394,7 @@ function EntryScreen({
             <div style={{ fontSize: 16, fontWeight: 700 }}>{category.name}</div>
             <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{groupName}</div>
           </div>
-          <span className="pill blue tnum">{catTotal}</span>
+          <span className="pill blue tnum">{total}</span>
         </div>
       </div>
 
@@ -537,8 +446,8 @@ function EntryScreen({
       </div>
 
       <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
-        <Btn kind="primary" size="lg" full onClick={onBack} icon="check" style={{ boxShadow: "var(--sh-2)" }}>
-          เสร็จหมวดนี้ · เลือกหมวดอื่น <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Done</span>
+        <Btn kind="primary" size="lg" full onClick={onNext} style={{ boxShadow: "var(--sh-2)" }}>
+          ตรวจทานก่อนส่ง <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Review</span> · {total} รายการ
         </Btn>
       </div>
     </div>
@@ -582,11 +491,12 @@ function Stepper({ value, onChange }: { value: number; onChange: (v: number) => 
   );
 }
 
-/* ---------- review ---------- */
+/* ---------- 4) review ---------- */
 function ReviewScreen({
   date,
   group,
   groupName,
+  catName,
   noUsage,
   qty,
   byId,
@@ -598,6 +508,7 @@ function ReviewScreen({
   date: string;
   group: string | null;
   groupName?: string;
+  catName?: string;
   noUsage: boolean;
   qty: Record<string, number>;
   byId: Map<string, Product>;
@@ -622,6 +533,12 @@ function ReviewScreen({
       <div style={{ padding: "12px 16px 130px", display: "flex", flexDirection: "column", gap: 12 }}>
         <div className="card" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
           <ReviewRow icon="calendar" label="วันที่" value={fmt} />
+          {!noUsage && (
+            <>
+              <div style={{ height: 1, background: "var(--surface-3)" }} />
+              <ReviewRow icon="layers" label="หมวดหมู่" value={catName ?? ""} />
+            </>
+          )}
           <div style={{ height: 1, background: "var(--surface-3)" }} />
           <ReviewRow icon={group ? (GROUP_ICON[group] as IconName) || "users" : "x"} label="กลุ่มลูกค้า" value={noUsage ? "ไม่มีการใช้งานวันนี้" : groupName ?? ""} />
         </div>
@@ -653,7 +570,7 @@ function ReviewScreen({
             ))}
             <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 16px", background: "var(--surface-2)" }}>
               <div>
-                <div style={{ fontSize: 13, color: "var(--ink-3)" }}>รวมทั้งหมด</div>
+                <div style={{ fontSize: 13, color: "var(--ink-3)" }}>รวมหมวดนี้</div>
                 {meters > 0 && <div className="en" style={{ fontSize: 11.5 }}>{meters} meters of rail</div>}
               </div>
               <div className="tnum" style={{ fontSize: 24, fontWeight: 700, color: "var(--accent)" }}>{total}</div>
@@ -674,22 +591,22 @@ function ReviewScreen({
   );
 }
 
-/* ---------- success ---------- */
+/* ---------- 5) success ---------- */
 function SuccessScreen({
+  catName,
   groupName,
   noUsage,
   total,
   time,
-  remainingGroups,
-  onAddAnother,
+  onAnother,
   onDone,
 }: {
+  catName?: string;
   groupName?: string;
   noUsage: boolean;
   total: number;
   time: string;
-  remainingGroups: number;
-  onAddAnother: () => void;
+  onAnother: () => void;
   onDone: () => void;
 }) {
   return (
@@ -704,6 +621,7 @@ function SuccessScreen({
         <div className="en" style={{ fontSize: 13, marginTop: 2 }}>Submitted successfully</div>
 
         <div className="card" style={{ width: "100%", padding: 16, marginTop: 22, textAlign: "left", display: "flex", flexDirection: "column", gap: 10 }}>
+          {!noUsage && <RowKV k="หมวดหมู่" v={catName ?? ""} />}
           <RowKV k="กลุ่มลูกค้า" v={noUsage ? "ไม่มีการใช้งาน" : groupName ?? ""} />
           <RowKV k="จำนวนรวม" v={noUsage ? "—" : `${total} รายการ`} />
           <RowKV k="เวลาส่ง" v={time} mono />
@@ -713,13 +631,69 @@ function SuccessScreen({
         </div>
       </div>
       <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10 }}>
-        {remainingGroups > 0 && (
-          <Btn kind="soft" size="lg" full onClick={onAddAnother} icon="plus">
-            บันทึกกลุ่มลูกค้าอื่น <span className="en">Add another group</span>
-          </Btn>
-        )}
+        <Btn kind="soft" size="lg" full onClick={onAnother} icon="plus">
+          บันทึกหมวด/กลุ่มอื่น <span className="en">Record more</span>
+        </Btn>
         <Btn kind="primary" size="lg" full onClick={onDone} icon="check">
           เสร็จสิ้น · ดูสรุปวันนี้ <span className="en" style={{ color: "rgba(255,255,255,.7)" }}>Done</span>
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- today summary (per customer group) ---------- */
+function SummaryScreen({
+  worker,
+  subs,
+  groupName,
+  onAdd,
+}: {
+  worker: { name: string; code: string };
+  subs: ExistingSubmission[];
+  groupName: (id: string | null) => string | undefined;
+  onAdd: () => void;
+}) {
+  const grand = subs.reduce((s, x) => s + (x.noUsage ? 0 : sumQty(x.items)), 0);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 18px 14px" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: "-.01em" }}>บันทึกวันนี้</div>
+          <div className="en" style={{ fontSize: 12 }}>{worker.name} · {subs.length} กลุ่ม</div>
+        </div>
+        <LogoutBtn />
+      </div>
+
+      <div style={{ padding: "4px 18px 18px", display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 11.5, color: "var(--ink-3)" }}>รวมทั้งวัน</div>
+            <div className="tnum" style={{ fontSize: 22, fontWeight: 700, color: "var(--accent)" }}>{grand} <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-3)" }}>รายการ</span></div>
+          </div>
+        </div>
+        {subs.map((s, i) => {
+          const t = s.noUsage ? 0 : sumQty(s.items);
+          return (
+            <div key={i} className="card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 13 }}>
+              <span style={{ width: 42, height: 42, borderRadius: 12, background: s.noUsage ? "var(--surface-3)" : "var(--accent-soft)", color: s.noUsage ? "var(--ink-3)" : "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                <Icon name={s.noUsage ? "x" : (GROUP_ICON[s.group ?? ""] as IconName) || "users"} size={22} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15.5, fontWeight: 600 }}>{s.noUsage ? "ไม่มีการใช้งานวันนี้" : groupName(s.group)}</div>
+                <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{s.noUsage ? "—" : `${t} รายการ`} · ส่ง {s.time} น.</div>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ fontSize: 12, color: "var(--ink-3)", lineHeight: 1.6, padding: "2px 2px" }}>
+          ต้องการแก้ไข? กด &ldquo;บันทึกเพิ่ม&rdquo; → เลือกหมวด → เลือกกลุ่มเดิม (จะมีป้าย &ldquo;บันทึกแล้ว&rdquo;)
+        </div>
+      </div>
+
+      <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
+        <Btn kind="primary" size="lg" full icon="plus" onClick={onAdd} style={{ boxShadow: "var(--sh-2)" }}>
+          บันทึกเพิ่ม <span className="en">Record more</span>
         </Btn>
       </div>
     </div>
