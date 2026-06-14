@@ -22,6 +22,7 @@ export type Product = {
   category_id: string | null;
   unit: string | null;
   unit_en: string | null;
+  variant: string | null;
   size: string | null;
   length: string | null;
   length_m: number | null;

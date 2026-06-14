@@ -22,23 +22,34 @@ export function entryGroups(category: Category, products: Product[]): EntryGroup
   const items = products.filter((p) => p.category_id === category.id && p.active);
 
   if (category.viz === "rail") {
-    // distinct sizes ordered by their smallest display_order
-    const order = new Map<string, number>();
+    // group by variant (model) → size, so different rail models (e.g. GI) get
+    // their own clearly-labelled section. Standard rails (no variant) come first.
+    type G = { variant: string | null; size: string; minOrder: number; items: Product[] };
+    const map = new Map<string, G>();
     for (const p of items) {
+      const variant = p.variant && p.variant.trim() ? p.variant.trim() : null;
       const size = p.size ?? "—";
-      const cur = order.get(size);
-      if (cur === undefined || p.display_order < cur) order.set(size, p.display_order);
+      const k = `${variant ?? ""}|${size}`;
+      let g = map.get(k);
+      if (!g) {
+        g = { variant, size, minOrder: p.display_order, items: [] };
+        map.set(k, g);
+      }
+      g.items.push(p);
+      if (p.display_order < g.minOrder) g.minOrder = p.display_order;
     }
-    const sizes = [...order.keys()].sort((a, b) => (order.get(a)! - order.get(b)!));
-    return sizes.map((size) => ({
-      key: size,
-      label: size === "—" ? "ราง (ไม่ระบุขนาด)" : `ราง ${size}`,
-      en: size === "—" ? "Other rails" : `Rail ${size}`,
-      unit: items.find((p) => (p.size ?? "—") === size)?.unit ?? "",
-      items: items
-        .filter((p) => (p.size ?? "—") === size)
-        .sort((a, b) => (a.length_m ?? 0) - (b.length_m ?? 0)),
-    }));
+    return [...map.values()]
+      .sort((a, b) => a.minOrder - b.minOrder)
+      .map((g) => {
+        const sizePart = g.size === "—" ? "(ไม่ระบุขนาด)" : g.size;
+        return {
+          key: `${g.variant ?? ""}|${g.size}`,
+          label: g.variant ? `ราง ${g.variant} ${sizePart}` : `ราง ${sizePart}`,
+          en: g.variant ? `${g.variant} ${g.size === "—" ? "" : g.size}`.trim() : g.size === "—" ? "Other rails" : `Rail ${g.size}`,
+          unit: g.items[0]?.unit ?? "",
+          items: g.items.sort((a, b) => (a.length_m ?? 0) - (b.length_m ?? 0)),
+        };
+      });
   }
 
   return [

@@ -68,6 +68,7 @@ create table if not exists public.products (
   category_id   text references public.categories(id),
   unit          text,                -- display unit, e.g. 'เส้น'
   unit_en       text,
+  variant       text,                -- optional model/variant, e.g. 'GI' (groups worker entry)
   size          text,                -- rails only, e.g. '1"'
   length        text,                -- rails only, e.g. '3m'
   length_m      numeric,             -- rails only, drives meters calc

@@ -10,6 +10,7 @@ export type ProductInput = {
   name_en: string;
   category_id: string;
   unit: string;
+  variant: string;
   size: string;
   length: string;
   min_stock: number;
@@ -36,6 +37,7 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult> {
     name_en: input.name_en.trim() || null,
     category_id: input.category_id,
     unit: input.unit.trim() || null,
+    variant: input.variant.trim() || null,
     size: input.size.trim() || null,
     length: input.length.trim() || null,
     length_m: parseLengthM(input.length),

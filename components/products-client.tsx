@@ -143,6 +143,7 @@ function ProductModal({
   const [name, setName] = useState(p?.name ?? "");
   const [nameEn, setNameEn] = useState(p?.name_en ?? "");
   const [unit, setUnit] = useState(p?.unit ?? "");
+  const [variant, setVariant] = useState(p?.variant ?? "");
   const [min, setMin] = useState(String(p?.min_stock ?? ""));
   const [order, setOrder] = useState(String(p?.display_order ?? ""));
   const [size, setSize] = useState(p?.size ?? "");
@@ -160,6 +161,7 @@ function ProductModal({
       name_en: nameEn,
       category_id: category,
       unit,
+      variant,
       size,
       length,
       min_stock: Number(min) || 0,
@@ -236,13 +238,19 @@ function ProductModal({
           <TextInput inputMode="numeric" value={order} onChange={(e) => setOrder(e.target.value.replace(/\D/g, ""))} placeholder="1" />
         </Field>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+        <Field label="รุ่น/แบบ (ถ้ามี)" en="Variant · optional">
+          <TextInput value={variant} onChange={(e) => setVariant(e.target.value)} placeholder="เช่น GI" />
+        </Field>
         <Field label="ขนาด (ถ้ามี)" en="Size · optional">
           <TextInput value={size} onChange={(e) => setSize(e.target.value)} placeholder={'1"'} />
         </Field>
         <Field label="ความยาว (ถ้ามี)" en="Length · optional">
           <TextInput value={length} onChange={(e) => setLength(e.target.value)} placeholder="1m" />
         </Field>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
+        &ldquo;รุ่น/แบบ&rdquo; ใช้แยกกลุ่มตอนพนักงานกรอก (เช่น ราง GI แยกจากรางมาตรฐาน) · เว้นว่างได้ถ้าเป็นรุ่นมาตรฐาน
       </div>
       <label
         style={{
