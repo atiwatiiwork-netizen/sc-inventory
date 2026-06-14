@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+/* ============================================================
+   SC Inventory — Design System
+   Clean modern SaaS · steel-grey base · blue accent · bilingual
+   Type: IBM Plex Sans Thai (UI) · IBM Plex Mono (codes/data)
+   Ported 1:1 from the Claude Design prototype (styles.css).
+   ============================================================ */
+
+:root {
+  /* Neutrals — cool steel greys */
+  --bg:        #eef1f5;
+  --surface:   #ffffff;
+  --surface-2: #f7f9fc;
+  --surface-3: #eef2f7;
+  --border:    #e3e8ef;
+  --border-2:  #d3dae5;
+  --ink:       #0f1b2d;
+  --ink-2:     #475569;
+  --ink-3:     #8a98ab;
+  --ink-4:     #aab4c2;
+
+  /* Accent — blue */
+  --accent:        #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-ink:    #1e3a8a;
+  --accent-soft:   #eef4ff;
+  --accent-soft-2: #dbe7ff;
+
+  /* Traffic-light / status */
+  --green:      #0f9d6b;
+  --green-soft: #e6f7f0;
+  --green-ink:  #0a6e4b;
+  --amber:      #e08a00;
+  --amber-soft: #fdf3e2;
+  --amber-ink:  #9a5b00;
+  --red:        #e0413c;
+  --red-soft:   #fdecec;
+  --red-ink:    #a82420;
+
+  /* Radii */
+  --r-xs: 7px;
+  --r-sm: 10px;
+  --r:    14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+
+  /* Shadows */
+  --sh-1: 0 1px 2px rgba(15,27,45,.05), 0 1px 3px rgba(15,27,45,.06);
+  --sh-2: 0 2px 6px rgba(15,27,45,.06), 0 8px 24px rgba(15,27,45,.07);
+  --sh-3: 0 12px 40px rgba(15,27,45,.16);
+  --sh-pop: 0 18px 50px rgba(15,27,45,.22);
+
+  /* Fonts — variables injected by next/font in layout.tsx */
+  --font: var(--font-plex-thai), "IBM Plex Sans", system-ui, sans-serif;
+  --mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+/* Expose the tokens to Tailwind so utilities like bg-surface / text-ink /
+   rounded-r / shadow-1 are available alongside raw var() usage. */
+@theme inline {
+  --color-bg:        var(--bg);
+  --color-surface:   var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border:    var(--border);
+  --color-border-2:  var(--border-2);
+  --color-ink:       var(--ink);
+  --color-ink-2:     var(--ink-2);
+  --color-ink-3:     var(--ink-3);
+  --color-ink-4:     var(--ink-4);
+
+  --color-accent:        var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-ink:    var(--accent-ink);
+  --color-accent-soft:   var(--accent-soft);
+  --color-accent-soft-2: var(--accent-soft-2);
+
+  --color-green:      var(--green);
+  --color-green-soft: var(--green-soft);
+  --color-green-ink:  var(--green-ink);
+  --color-amber:      var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-ink:  var(--amber-ink);
+  --color-red:        var(--red);
+  --color-red-soft:   var(--red-soft);
+  --color-red-ink:    var(--red-ink);
+
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-r:  var(--r);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+
+  --shadow-1:   var(--sh-1);
+  --shadow-2:   var(--sh-2);
+  --shadow-3:   var(--sh-3);
+  --shadow-pop: var(--sh-pop);
+
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
+
+/* ---- shared atoms ---------------------------------------- */
+
+.mono { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+.en {
+  font-size: .72em;
+  color: var(--ink-3);
+  font-weight: 500;
+  letter-spacing: .01em;
+}
+
+/* status dot */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.green { background: var(--green); }
+.dot.amber { background: var(--amber); }
+.dot.red   { background: var(--red); }
+
+/* pill */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; line-height: 1.4;
+}
+.pill.green { background: var(--green-soft); color: var(--green-ink); }
+.pill.amber { background: var(--amber-soft); color: var(--amber-ink); }
+.pill.red   { background: var(--red-soft);   color: var(--red-ink); }
+.pill.blue  { background: var(--accent-soft); color: var(--accent-ink); }
+.pill.grey  { background: var(--surface-3);   color: var(--ink-2); }
+
+/* generic card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh-1);
+}
+
+/* scrollbars inside frames */
+.scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll::-webkit-scrollbar-thumb { background: #c9d2de; border-radius: 99px; border: 3px solid transparent; background-clip: padding-box; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* focus ring */
+.focusable:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--accent-soft-2);
+  outline-offset: 1px;
+}
+
+@keyframes fadeUp { from { transform: translateY(9px); } to { transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn  { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes checkPop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+
+/* Entrance animations are ENHANCEMENT only. fade-up is transform-driven so
+   content stays visible even when the animation clock never ticks. */
+.fade-up, .fade-in, .pop-in { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .fade-up { animation: fadeUp .32s cubic-bezier(.2,.7,.2,1); }
+  .fade-in { animation: fadeIn .3s ease both; }
+  .pop-in  { animation: popIn .26s cubic-bezier(.2,.7,.2,1) both; }
+}
