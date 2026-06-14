@@ -54,6 +54,7 @@ create table if not exists public.categories (
   viz               text references public.viz_types(id) default 'product',
   active            boolean not null default true,
   archived          boolean not null default false,
+  worker_entry      boolean not null default true,  -- admin can open/close per category for worker entry
   created_at        timestamptz not null default now()
 );
 

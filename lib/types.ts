@@ -12,6 +12,7 @@ export type Category = {
   viz: string | null;
   active: boolean;
   archived: boolean;
+  worker_entry: boolean;
 };
 
 export type Product = {

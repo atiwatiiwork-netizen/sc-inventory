@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Category, CustomerGroup, Product } from "@/lib/types";
 import { entryGroups, sumMeters, sumQty } from "@/lib/grouping";
-import { GROUP_ICON } from "@/lib/nav";
+import { GROUP_ICON, CAT_ICON } from "@/lib/nav";
 import { Icon, type IconName } from "@/components/icon";
 import { Btn } from "@/components/ui";
 import { workerSignOut } from "@/app/auth/actions";
@@ -17,7 +17,7 @@ export type ExistingSubmission = {
   time: string;
 };
 
-type Step = "summary" | "pick" | "entry" | "review" | "success";
+type Step = "summary" | "pick" | "catpick" | "entry" | "review" | "success";
 
 export function WorkerFlow({
   worker,
@@ -44,7 +44,7 @@ export function WorkerFlow({
   const [group, setGroup] = useState<string | null>(null);
   const [noUsage, setNoUsage] = useState(false);
   const [qty, setQty] = useState<Record<string, number>>({});
-  const [openCat, setOpenCat] = useState<string>(categories[0]?.id ?? "");
+  const [currentCat, setCurrentCat] = useState<string>(categories[0]?.id ?? "");
   const [time, setTime] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -75,6 +75,11 @@ export function WorkerFlow({
     setGroup(g);
     setNoUsage(false);
     setQty(ex ? { ...ex.items } : {});
+    setStep("catpick"); // choose a product category to fill next
+  };
+
+  const onPickCat = (catId: string) => {
+    setCurrentCat(catId);
     setStep("entry");
   };
 
@@ -141,19 +146,28 @@ export function WorkerFlow({
         />
       )}
 
-      {step === "entry" && (
-        <EntryScreen
+      {step === "catpick" && (
+        <CatPickScreen
           categories={categories}
           products={products}
           qty={qty}
-          setOne={setOne}
-          openCat={openCat}
-          setOpenCat={setOpenCat}
           groupName={groupName(group)}
-          editing={submittedGroupIds.has(group ?? "")}
           total={total}
+          editing={submittedGroupIds.has(group ?? "")}
           onBack={() => setStep("pick")}
-          onNext={() => setStep("review")}
+          onPickCat={onPickCat}
+          onReview={() => setStep("review")}
+        />
+      )}
+
+      {step === "entry" && (
+        <EntryScreen
+          category={categories.find((c) => c.id === currentCat)}
+          products={products}
+          qty={qty}
+          setOne={setOne}
+          groupName={groupName(group)}
+          onBack={() => setStep("catpick")}
         />
       )}
 
@@ -167,7 +181,7 @@ export function WorkerFlow({
           byId={byId}
           error={error}
           pending={pending}
-          onEdit={() => setStep(noUsage ? "pick" : "entry")}
+          onEdit={() => setStep(noUsage ? "pick" : "catpick")}
           onConfirm={confirm}
         />
       )}
@@ -372,32 +386,94 @@ function PickScreen({
   );
 }
 
-/* ---------- entry (grouped) ---------- */
-function EntryScreen({
+/* ---------- category picker (choose which category to fill) ---------- */
+function CatPickScreen({
   categories,
   products,
   qty,
-  setOne,
-  openCat,
-  setOpenCat,
   groupName,
-  editing,
   total,
+  editing,
   onBack,
-  onNext,
+  onPickCat,
+  onReview,
 }: {
   categories: Category[];
   products: Product[];
   qty: Record<string, number>;
-  setOne: (id: string, v: number | string) => void;
-  openCat: string;
-  setOpenCat: (id: string) => void;
   groupName?: string;
-  editing: boolean;
   total: number;
+  editing: boolean;
   onBack: () => void;
-  onNext: () => void;
+  onPickCat: (catId: string) => void;
+  onReview: () => void;
 }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 14px 10px" }}>
+        <button onClick={onBack} style={{ border: "none", background: "var(--surface-3)", borderRadius: 11, width: 38, height: 38, color: "var(--ink-2)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+          <Icon name="chevL" size={20} />
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>เลือกหมวดหมู่{editing ? " (แก้ไข)" : ""}</div>
+          <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{groupName}</div>
+        </div>
+        {total > 0 && <span className="pill blue tnum">{total} รายการรวม</span>}
+      </div>
+
+      <div style={{ padding: "8px 16px 120px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {categories.map((c) => {
+          const items = products.filter((p) => p.category_id === c.id && p.active);
+          const catTotal = items.reduce((s, p) => s + (qty[p.id] || 0), 0);
+          return (
+            <button
+              key={c.id}
+              onClick={() => onPickCat(c.id)}
+              className="card focusable"
+              style={{ padding: "15px 16px", display: "flex", alignItems: "center", gap: 13, textAlign: "left", border: "1px solid var(--border)" }}
+            >
+              <span style={{ width: 44, height: 44, borderRadius: 12, background: catTotal > 0 ? "var(--accent-soft)" : "var(--surface-3)", color: catTotal > 0 ? "var(--accent)" : "var(--ink-3)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+                <Icon name={(CAT_ICON[c.id] as IconName) || "box"} size={22} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>{c.name}</div>
+                <div className="en" style={{ fontSize: 11.5 }}>{c.name_en} · {items.length} รายการ</div>
+              </div>
+              {catTotal > 0 ? <span className="pill blue tnum">{catTotal}</span> : <Icon name="chevR" size={20} style={{ color: "var(--ink-4)" }} />}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
+        <Btn kind="primary" size="lg" full disabled={total === 0} style={{ opacity: total === 0 ? 0.5 : 1, boxShadow: "var(--sh-2)" }} onClick={() => total > 0 && onReview()}>
+          ตรวจทานก่อนส่ง <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Review</span> · {total} รายการ
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- entry for ONE category (grouped) ---------- */
+function EntryScreen({
+  category,
+  products,
+  qty,
+  setOne,
+  groupName,
+  onBack,
+}: {
+  category: Category | undefined;
+  products: Product[];
+  qty: Record<string, number>;
+  setOne: (id: string, v: number | string) => void;
+  groupName?: string;
+  onBack: () => void;
+}) {
+  if (!category) return null;
+  const groups = entryGroups(category, products);
+  const catTotal = groups.flatMap((g) => g.items).reduce((s, p) => s + (qty[p.id] || 0), 0);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
@@ -406,87 +482,63 @@ function EntryScreen({
             <Icon name="chevL" size={20} />
           </button>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>กรอกจำนวนที่ใช้{editing ? " (แก้ไข)" : ""}</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{category.name}</div>
             <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{groupName}</div>
           </div>
-          <span className="pill blue tnum">{total} รายการรวม</span>
+          <span className="pill blue tnum">{catTotal}</span>
         </div>
       </div>
 
-      <div style={{ padding: "14px 16px 120px", display: "flex", flexDirection: "column", gap: 12 }}>
-        {categories.map((c) => {
-          const groups = entryGroups(c, products);
-          const items = groups.flatMap((g) => g.items);
-          const open = openCat === c.id;
-          const catTotal = items.reduce((s, p) => s + (qty[p.id] || 0), 0);
-          return (
-            <div key={c.id} className="card" style={{ overflow: "hidden" }}>
-              <button
-                onClick={() => setOpenCat(open ? "" : c.id)}
-                className="focusable"
-                style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, background: "transparent", border: "none", textAlign: "left" }}
-              >
-                <Icon name="chevR" size={18} style={{ color: "var(--ink-4)", transform: open ? "rotate(90deg)" : "", transition: "transform .2s" }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</div>
-                  <div className="en" style={{ fontSize: 11.5 }}>{c.name_en} · {items.length} รายการ</div>
-                </div>
-                {catTotal > 0 && <span className="pill blue tnum">{catTotal}</span>}
-              </button>
-              {open && (
-                <div className="fade-up" style={{ borderTop: "1px solid var(--border)", padding: "4px 14px 14px" }}>
-                  {c.viz === "rail" ? (
-                    groups.map((g) => (
-                      <div key={g.key} style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-2)", marginBottom: 6 }}>{g.label}</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
-                          {g.items.map((p) => (
-                            <div key={p.id}>
-                              <div style={{ fontSize: 11, color: "var(--ink-3)", textAlign: "center", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.name}>{p.length || p.name}</div>
-                              <input
-                                className="tnum focusable"
-                                inputMode="numeric"
-                                value={qty[p.id] || ""}
-                                placeholder="0"
-                                onChange={(e) => setOne(p.id, e.target.value.replace(/\D/g, "").slice(0, 4))}
-                                style={{
-                                  width: "100%",
-                                  height: 52,
-                                  textAlign: "center",
-                                  fontSize: 20,
-                                  fontWeight: 700,
-                                  borderRadius: 11,
-                                  border: "1px solid var(--border-2)",
-                                  background: qty[p.id] ? "var(--accent-soft)" : "var(--surface-2)",
-                                  color: qty[p.id] ? "var(--accent-ink)" : "var(--ink-4)",
-                                }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    items.map((p) => (
-                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 2px", borderBottom: "1px solid var(--surface-3)" }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                          <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{p.sku} · {p.unit}</div>
-                        </div>
-                        <Stepper value={qty[p.id] || 0} onChange={(v) => setOne(p.id, v)} />
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+      <div style={{ padding: "14px 16px 120px", display: "flex", flexDirection: "column", gap: 14 }}>
+        {category.viz === "rail" ? (
+          groups.map((g) => (
+            <div key={g.key} className="card" style={{ padding: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-2)", marginBottom: 8 }}>{g.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
+                {g.items.map((p) => (
+                  <div key={p.id}>
+                    <div style={{ fontSize: 11, color: "var(--ink-3)", textAlign: "center", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.name}>{p.length || p.name}</div>
+                    <input
+                      className="tnum focusable"
+                      inputMode="numeric"
+                      value={qty[p.id] || ""}
+                      placeholder="0"
+                      onChange={(e) => setOne(p.id, e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      style={{
+                        width: "100%",
+                        height: 52,
+                        textAlign: "center",
+                        fontSize: 20,
+                        fontWeight: 700,
+                        borderRadius: 11,
+                        border: "1px solid var(--border-2)",
+                        background: qty[p.id] ? "var(--accent-soft)" : "var(--surface-2)",
+                        color: qty[p.id] ? "var(--accent-ink)" : "var(--ink-4)",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          );
-        })}
+          ))
+        ) : (
+          <div className="card" style={{ overflow: "hidden" }}>
+            {groups.flatMap((g) => g.items).map((p) => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderBottom: "1px solid var(--surface-3)" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{p.sku} · {p.unit}</div>
+                </div>
+                <Stepper value={qty[p.id] || 0} onChange={(v) => setOne(p.id, v)} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
-        <Btn kind="primary" size="lg" full onClick={onNext} style={{ boxShadow: "var(--sh-2)" }}>
-          ตรวจทานก่อนส่ง <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Review</span> · {total} รายการ
+        <Btn kind="primary" size="lg" full onClick={onBack} icon="check" style={{ boxShadow: "var(--sh-2)" }}>
+          เสร็จหมวดนี้ · เลือกหมวดอื่น <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Done</span>
         </Btn>
       </div>
     </div>

@@ -11,6 +11,7 @@ export type CategoryInput = {
   report_unit: string;
   viz: string;
   active: boolean;
+  worker_entry: boolean;
 };
 
 export type ActionResult = { ok: boolean; error?: string };
@@ -41,6 +42,7 @@ export async function saveCategory(input: CategoryInput): Promise<ActionResult> 
     report_unit_th: unit?.th ?? input.report_unit,
     viz: input.viz,
     active: input.active,
+    worker_entry: input.worker_entry,
   };
 
   if (input.id) {
@@ -52,6 +54,15 @@ export async function saveCategory(input: CategoryInput): Promise<ActionResult> 
     if (error) return { ok: false, error: error.message };
   }
 
+  revalidatePath("/admin/categories");
+  return { ok: true };
+}
+
+/** Quick toggle for whether workers must fill this category in the daily flow. */
+export async function setCategoryWorkerEntry(id: string, on: boolean): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("categories").update({ worker_entry: on }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/categories");
   return { ok: true };
 }

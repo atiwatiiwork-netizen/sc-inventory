@@ -6,7 +6,7 @@ import type { Category, ReportUnit, VizType } from "@/lib/types";
 import { CAT_ICON } from "@/lib/nav";
 import { Icon } from "@/components/icon";
 import { Btn, DataTable, Field, Modal, Panel, ScreenHead, SelectInput, TextInput, Toggle } from "@/components/ui";
-import { saveCategory, archiveCategory, type CategoryInput } from "@/app/admin/(console)/categories/actions";
+import { saveCategory, archiveCategory, setCategoryWorkerEntry, type CategoryInput } from "@/app/admin/(console)/categories/actions";
 
 type Editing = Category | "new" | null;
 
@@ -45,6 +45,7 @@ export function CategoriesClient({
             { label: "การแสดงผล", w: 160 },
             { label: "SKU", right: true, w: 70 },
             { label: "สถานะ", w: 100 },
+            { label: "พนักงานกรอก", w: 110 },
             { label: "", w: 60 },
           ]}
         >
@@ -92,6 +93,9 @@ export function CategoriesClient({
                 <span className={`pill ${c.archived ? "grey" : c.active ? "green" : "grey"}`}>
                   {c.archived ? "เก็บถาวร" : c.active ? "ใช้งาน" : "ปิด"}
                 </span>
+              </td>
+              <td style={{ padding: "12px 14px" }}>
+                <WorkerEntryToggle id={c.id} on={c.worker_entry} />
               </td>
               <td style={{ padding: "12px 14px" }}>
                 <button
@@ -160,6 +164,7 @@ function CategoryModal({
   const [order, setOrder] = useState(String(c?.display_order ?? ""));
   const [viz, setViz] = useState(c?.viz ?? "product");
   const [active, setActive] = useState(isNew ? true : c!.active && !c!.archived);
+  const [workerEntry, setWorkerEntry] = useState(isNew ? true : c!.worker_entry);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -173,6 +178,7 @@ function CategoryModal({
       report_unit: unit,
       viz,
       active,
+      worker_entry: workerEntry,
     };
     start(async () => {
       const res = await saveCategory(input);
@@ -281,11 +287,48 @@ function CategoryModal({
         <Toggle on={active} onChange={setActive} />
       </label>
 
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 14px",
+          borderRadius: 10,
+          background: "var(--surface-2)",
+          marginTop: 10,
+        }}
+      >
+        <span style={{ fontSize: 13.5, fontWeight: 600 }}>
+          ให้พนักงานกรอกหมวดนี้ <span className="en">Worker entry</span>
+          <div style={{ fontSize: 11.5, color: "var(--ink-3)", fontWeight: 400 }}>ปิดได้ถ้ายังไม่ต้องการให้พนักงานกรอกหมวดนี้</div>
+        </span>
+        <Toggle on={workerEntry} onChange={setWorkerEntry} />
+      </label>
+
       {error && (
         <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "var(--red-soft)", color: "var(--red-ink)", fontSize: 13, fontWeight: 600 }}>
           {error}
         </div>
       )}
     </Modal>
+  );
+}
+
+/* quick toggle in the table for "workers must fill this category" */
+function WorkerEntryToggle({ id, on }: { id: string; on: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  return (
+    <span style={{ opacity: pending ? 0.5 : 1 }}>
+      <Toggle
+        on={on}
+        onChange={(v) =>
+          start(async () => {
+            await setCategoryWorkerEntry(id, v);
+            router.refresh();
+          })
+        }
+      />
+    </span>
   );
 }

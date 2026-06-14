@@ -10,7 +10,13 @@ export default async function WorkerHome() {
 
   const [groups, cats, prods, subs] = await Promise.all([
     supabase.from("customer_groups").select("*").eq("active", true),
-    supabase.from("categories").select("*").eq("active", true).eq("archived", false).order("display_order"),
+    supabase
+      .from("categories")
+      .select("*")
+      .eq("active", true)
+      .eq("archived", false)
+      .eq("worker_entry", true)
+      .order("display_order"),
     supabase.from("products").select("*").eq("active", true).order("display_order"),
     supabase
       .from("daily_submissions")
