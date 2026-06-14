@@ -8,31 +8,30 @@ export default async function WorkerHome() {
   const supabase = createServiceClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [groups, cats, prods, sub] = await Promise.all([
+  const [groups, cats, prods, subs] = await Promise.all([
     supabase.from("customer_groups").select("*").eq("active", true),
     supabase.from("categories").select("*").eq("active", true).eq("archived", false).order("display_order"),
     supabase.from("products").select("*").eq("active", true).order("display_order"),
     supabase
       .from("daily_submissions")
-      .select("id, customer_group_id, no_usage, submitted_at, submission_items(product_id, qty)")
+      .select("customer_group_id, no_usage, submitted_at, submission_items(product_id, qty)")
       .eq("worker_id", session.id)
       .eq("usage_date", today)
-      .maybeSingle(),
+      .order("submitted_at", { ascending: true }),
   ]);
 
-  let existing: ExistingSubmission | null = null;
-  if (sub.data) {
-    const items: Record<string, number> = {};
-    (sub.data.submission_items as { product_id: string; qty: number }[] | null)?.forEach((it) => {
-      items[it.product_id] = it.qty;
-    });
-    existing = {
-      group: sub.data.customer_group_id,
-      noUsage: sub.data.no_usage,
-      items,
-      time: sub.data.submitted_at ? new Date(sub.data.submitted_at).toTimeString().slice(0, 5) : "",
-    };
-  }
+  type SubRow = {
+    customer_group_id: string | null;
+    no_usage: boolean;
+    submitted_at: string | null;
+    submission_items: { product_id: string; qty: number }[] | null;
+  };
+  const existing: ExistingSubmission[] = ((subs.data ?? []) as SubRow[]).map((s) => ({
+    group: s.customer_group_id,
+    noUsage: s.no_usage,
+    items: Object.fromEntries((s.submission_items ?? []).map((it) => [it.product_id, it.qty])),
+    time: s.submitted_at ? new Date(s.submitted_at).toTimeString().slice(0, 5) : "",
+  }));
 
   return (
     <WorkerFlow

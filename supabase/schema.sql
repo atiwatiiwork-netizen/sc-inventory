@@ -135,7 +135,9 @@ create table if not exists public.daily_submissions (
   no_usage          boolean not null default false,
   status            text not null default 'submitted',
   submitted_at      timestamptz not null default now(),
-  unique (worker_id, usage_date)
+  -- one record per (worker, day, customer group) so a worker can record
+  -- several customer groups in the same day; re-submitting a group edits it.
+  unique (worker_id, usage_date, customer_group_id)
 );
 
 create table if not exists public.submission_items (
@@ -305,11 +307,21 @@ declare
 begin
   select code into w_code from public.workers where id = p_worker;
 
-  select id into sub_id from public.daily_submissions
-    where worker_id = p_worker and usage_date = p_date;
+  -- match the existing record for THIS customer group (or the no-usage record),
+  -- so different groups accumulate instead of overwriting each other.
+  if p_no_usage then
+    select id into sub_id from public.daily_submissions
+      where worker_id = p_worker and usage_date = p_date and no_usage = true
+      limit 1;
+  else
+    select id into sub_id from public.daily_submissions
+      where worker_id = p_worker and usage_date = p_date
+        and customer_group_id is not distinct from p_group
+      limit 1;
+  end if;
 
   if sub_id is not null then
-    -- reverse the previous submission's stock effect (edit case)
+    -- reverse only THIS group's previous stock effect (edit case)
     for prev in
       select product_id, qty from public.stock_transactions
       where submission_id = sub_id and type = 'out'
