@@ -84,6 +84,10 @@ export function ReportsClient({
   });
   const segMonth = customerGroups.map((g) => ({ label: g.name_en ?? g.name, value: monthRows.filter((r) => r.group === g.id).reduce((s, r) => s + unitVal(r), 0), color: GROUP_COLOR[g.id] || "var(--accent)" }));
 
+  // rows for the currently selected period → drives the per-SKU rail breakdown
+  const periodRows = tab === "daily" ? dailyRows : tab === "weekly" ? weekRows : monthRows;
+  const railProducts = products.filter((p) => p.category_id === catId && p.size);
+
   return (
     <div className="fade-up">
       <ScreenHead th="รายงาน" en="Reports · separated by category, never mixing units" right={<Btn kind="default" icon="download" size="sm">ส่งออก Excel</Btn>} />
@@ -196,10 +200,65 @@ export function ReportsClient({
         </div>
       )}
 
+      {cat.viz === "rail" && (
+        <div style={{ marginTop: 16 }}>
+          <RailSkuBreakdown products={railProducts} rows={periodRows} />
+        </div>
+      )}
+
       <div style={{ marginTop: 16, fontSize: 12.5, color: "var(--ink-3)", display: "flex", gap: 7, alignItems: "center" }}>
         <Icon name="lock" size={14} /> ทุกหมวดหมู่รายงานด้วยหน่วยของตัวเอง — ระบบไม่นำหน่วยที่ต่างกันมารวมยอดข้ามหมวด
       </div>
     </div>
+  );
+}
+
+/* per-SKU rail breakdown, grouped by size (pieces + meters), for the period. */
+function RailSkuBreakdown({ products, rows }: { products: Product[]; rows: ReportRow[] }) {
+  const skuPieces: Record<string, number> = {};
+  rows.forEach((r) => {
+    skuPieces[r.sku] = (skuPieces[r.sku] || 0) + r.qty;
+  });
+  const sizes = [...new Set(products.map((p) => p.size!).filter(Boolean))];
+  const hasAny = Object.values(skuPieces).some((v) => v > 0);
+
+  return (
+    <Panel title="การใช้ราย SKU แยกตามขนาด" en="Usage by SKU · per rail size · pieces / meters" pad={hasAny ? 8 : 0}>
+      {!hasAny ? (
+        <Empty msg="ยังไม่มีการใช้งานในช่วงนี้" />
+      ) : (
+        sizes.map((size) => {
+          const items = products.filter((p) => p.size === size).sort((a, b) => (a.length_m ?? 0) - (b.length_m ?? 0));
+          const sizePieces = items.reduce((s, p) => s + (skuPieces[p.sku] || 0), 0);
+          const sizeMeters = items.reduce((s, p) => s + (skuPieces[p.sku] || 0) * (p.length_m || 0), 0);
+          return (
+            <div key={size} style={{ margin: 8, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>ราง {size}</span>
+                <span className="tnum" style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+                  รวม {sizePieces.toLocaleString()} เส้น · {sizeMeters.toLocaleString()} ม.
+                </span>
+              </div>
+              {items.map((p) => {
+                const pcs = skuPieces[p.sku] || 0;
+                return (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderBottom: "1px solid var(--surface-3)" }}>
+                    <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)", width: 104 }}>{p.sku}</span>
+                    <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{p.length}</span>
+                    <span className="tnum" style={{ fontWeight: 700, fontSize: 14.5 }}>
+                      {pcs.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 400, color: "var(--ink-3)" }}>เส้น</span>
+                    </span>
+                    <span className="tnum" style={{ width: 90, textAlign: "right", color: "var(--ink-3)", fontSize: 12.5 }}>
+                      {(pcs * (p.length_m || 0)).toLocaleString()} ม.
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })
+      )}
+    </Panel>
   );
 }
 
