@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Category, Product } from "@/lib/types";
 import { Icon } from "@/components/icon";
 import { Btn, DataTable, Field, Modal, Panel, ScreenHead, SearchBox, SelectInput, TextInput, Toggle } from "@/components/ui";
-import { saveProduct, deleteProduct, type ProductInput } from "@/app/admin/(console)/products/actions";
+import { saveProduct, deleteProduct, forceDeleteProduct, type ProductInput } from "@/app/admin/(console)/products/actions";
 
 type Editing = Product | "new" | null;
 
@@ -16,10 +16,23 @@ export function ProductsClient({ products, categories }: { products: Product[]; 
   const router = useRouter();
   const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? id ?? "—";
 
+  const inactiveCount = products.filter((p) => !p.active).length;
+
   const list = useMemo(() => {
     const query = q.toLowerCase();
+    if (cat === "__inactive__") {
+      return products.filter(
+        (p) =>
+          !p.active &&
+          (!q ||
+            p.name.includes(q) ||
+            (p.name_en ?? "").toLowerCase().includes(query) ||
+            p.sku.toLowerCase().includes(query)),
+      );
+    }
     return products.filter(
       (p) =>
+        p.active &&
         (cat === "all" || p.category_id === cat) &&
         (!q ||
           p.name.includes(q) ||
@@ -32,14 +45,14 @@ export function ProductsClient({ products, categories }: { products: Product[]; 
     <div className="fade-up">
       <ScreenHead
         th="จัดการสินค้า"
-        en={`Products · ${products.length} SKU`}
+        en={`Products · ${products.filter((p) => p.active).length} SKU`}
         right={
           <Btn kind="primary" icon="plus" size="sm" onClick={() => setEditing("new")}>
             เพิ่มสินค้า
           </Btn>
         }
       />
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <SelectInput value={cat} onChange={(e) => setCat(e.target.value)} style={{ width: 200 }}>
           <option value="all">ทุกหมวดหมู่</option>
           {categories.map((c) => (
@@ -47,6 +60,9 @@ export function ProductsClient({ products, categories }: { products: Product[]; 
               {c.name}
             </option>
           ))}
+          {inactiveCount > 0 && (
+            <option value="__inactive__">— ปิดใช้งาน ({inactiveCount}) —</option>
+          )}
         </SelectInput>
         <SearchBox value={q} onChange={setQ} placeholder="ค้นหา SKU / ชื่อสินค้า" />
       </div>
@@ -152,6 +168,7 @@ function ProductModal({
   const [length, setLength] = useState(p?.length ?? "");
   const [active, setActive] = useState(isNew ? true : p!.active);
   const [error, setError] = useState<string | null>(null);
+  const [confirmForce, setConfirmForce] = useState(false);
   const [pending, start] = useTransition();
 
   const save = () => {
@@ -182,8 +199,20 @@ function ProductModal({
   const remove = () => {
     if (isNew) return;
     setError(null);
+    setConfirmForce(false);
     start(async () => {
       const res = await deleteProduct(p!.id);
+      if (res.ok) onSaved();
+      else if (res.error === "HAS_HISTORY") setConfirmForce(true);
+      else setError(res.error || "ลบไม่สำเร็จ");
+    });
+  };
+
+  const removeForce = () => {
+    if (isNew) return;
+    setError(null);
+    start(async () => {
+      const res = await forceDeleteProduct(p!.id);
       if (res.ok) onSaved();
       else setError(res.error || "ลบไม่สำเร็จ");
     });
@@ -284,6 +313,18 @@ function ProductModal({
         <Toggle on={active} onChange={setActive} />
       </label>
 
+      {confirmForce && (
+        <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 10, background: "var(--red-soft)", color: "var(--red-ink)", fontSize: 13 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>สินค้านี้มีประวัติการเคลื่อนไหว</div>
+          <div style={{ marginBottom: 10, fontWeight: 400 }}>การลบถาวรจะลบประวัติรับเข้า/เบิกออก/ปรับสต็อกทั้งหมดของสินค้านี้ไปด้วย ไม่สามารถกู้คืนได้</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn kind="ghost" size="sm" onClick={() => setConfirmForce(false)} disabled={pending}>ยกเลิก</Btn>
+            <Btn kind="danger" size="sm" icon="trash" onClick={removeForce} disabled={pending}>
+              {pending ? "กำลังลบ…" : "ยืนยัน ลบถาวร"}
+            </Btn>
+          </div>
+        </div>
+      )}
       {error && (
         <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "var(--red-soft)", color: "var(--red-ink)", fontSize: 13, fontWeight: 600 }}>
           {error}

@@ -62,7 +62,7 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult> {
   return { ok: true };
 }
 
-/** Delete only if the product has no transaction history (per spec). */
+/** Delete only if the product has no transaction history. */
 export async function deleteProduct(id: string): Promise<ActionResult> {
   const supabase = await createClient();
   const [{ count: txns }, { count: items }] = await Promise.all([
@@ -70,8 +70,20 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
     supabase.from("submission_items").select("*", { count: "exact", head: true }).eq("product_id", id),
   ]);
   if ((txns ?? 0) > 0 || (items ?? 0) > 0) {
-    return { ok: false, error: "สินค้ามีประวัติการเคลื่อนไหวแล้ว — ใช้การปิดใช้งานแทนการลบ" };
+    return { ok: false, error: "HAS_HISTORY" };
   }
+  const { error } = await supabase.from("products").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin/products");
+  return { ok: true };
+}
+
+/** Force-delete: removes all related records then the product. Destroys history permanently. */
+export async function forceDeleteProduct(id: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  await supabase.from("stock_adjustments").delete().eq("product_id", id);
+  await supabase.from("submission_items").delete().eq("product_id", id);
+  await supabase.from("stock_transactions").delete().eq("product_id", id);
   const { error } = await supabase.from("products").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/products");
