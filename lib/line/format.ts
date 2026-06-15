@@ -126,6 +126,31 @@ export function buildWeekly(d: WeeklyData, s: LineSettings): string {
   return wrap(L, s);
 }
 
+export type WorkerCatData = {
+  dateLabel: string;
+  worker: string;
+  categoryName: string;
+  unitTh: string;
+  groups: { name: string; items: { name: string; qty: number; unit: string }[]; total: number }[];
+  total: number;
+};
+
+/** Worker-initiated per-category push: only this category, only non-zero SKUs. */
+export function buildWorkerCategory(d: WorkerCatData, s: LineSettings): string {
+  const L: string[] = [];
+  L.push(`📦 ${d.categoryName} — สรุปการใช้`);
+  L.push(`${d.dateLabel} · โดย ${d.worker}`);
+  for (const g of d.groups) {
+    if (g.items.length === 0) continue;
+    L.push("");
+    L.push(`• ${g.name} (${nf(g.total)})`);
+    for (const it of g.items) L.push(`   – ${it.name}: ${nf(it.qty)} ${it.unit}`);
+  }
+  L.push("");
+  L.push(`รวมหมวดนี้: ${nf(d.total)} รายการ`);
+  return wrap(L, s);
+}
+
 export function buildMonthly(d: MonthlyData, s: LineSettings): string {
   const L: string[] = [];
   L.push("🗓️ สรุปรายเดือน");

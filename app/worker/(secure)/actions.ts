@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getWorkerSession } from "@/lib/worker-session";
 import { maybeSendDailyAfterSubmit } from "@/lib/line/send";
+import { getLineSettings } from "@/lib/settings";
+import { pushText } from "@/lib/line/client";
+import { buildWorkerCategory, type WorkerCatData } from "@/lib/line/format";
 
 export type UsageLine = { product_id: string; qty: number };
 export type SubmitResult = { ok: boolean; error?: string; time?: string };
@@ -48,6 +51,92 @@ export async function submitUsage(input: {
   // Idempotent + failure-isolated, so it never affects this submission.
   await maybeSendDailyAfterSubmit();
 
+  revalidatePath("/worker");
+  return { ok: true, time: new Date().toTimeString().slice(0, 5) };
+}
+
+type SubLine = {
+  customer_group_id: string | null;
+  submission_items:
+    | { qty: number; products: { name: string; category_id: string | null; unit: string | null } | null }[]
+    | null;
+};
+
+/**
+ * Worker pushes ONE category's usage to the management LINE group. Includes only
+ * non-zero SKUs, grouped by customer group. Requires the category to be complete
+ * (recorded for every active customer group) and LINE to be configured.
+ */
+export async function sendCategoryLine(input: { date: string; categoryId: string }): Promise<SubmitResult> {
+  const session = await getWorkerSession();
+  if (!session) return { ok: false, error: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return { ok: false, error: "ยังไม่ได้ตั้งค่า Supabase" };
+
+  const supabase = createServiceClient();
+  const settings = await getLineSettings(supabase);
+  if (!settings.enabled || !settings.token || !settings.recipientId) {
+    return { ok: false, error: "ยังไม่ได้ตั้งค่า/เปิดใช้งาน LINE (ตั้งค่าที่ฝั่งผู้ดูแล)" };
+  }
+
+  // completeness: recorded for every active customer group
+  const [{ data: groups }, { count: marks }] = await Promise.all([
+    supabase.from("customer_groups").select("id, name").eq("active", true),
+    supabase
+      .from("submission_category_marks")
+      .select("*", { count: "exact", head: true })
+      .eq("worker_id", session.id)
+      .eq("usage_date", input.date)
+      .eq("category_id", input.categoryId),
+  ]);
+  const groupList = (groups ?? []) as { id: string; name: string }[];
+  if ((marks ?? 0) < groupList.length) {
+    return { ok: false, error: "ยังกรอกไม่ครบทุกกลุ่มลูกค้า" };
+  }
+
+  const [{ data: cat }, { data: subs }] = await Promise.all([
+    supabase.from("categories").select("name, report_unit_th").eq("id", input.categoryId).maybeSingle(),
+    supabase
+      .from("daily_submissions")
+      .select("customer_group_id, submission_items(qty, products(name, category_id, unit))")
+      .eq("worker_id", session.id)
+      .eq("usage_date", input.date)
+      .eq("no_usage", false),
+  ]);
+
+  const groupName = new Map(groupList.map((g) => [g.id, g.name]));
+  let total = 0;
+  const dataGroups: WorkerCatData["groups"] = [];
+  for (const s of (subs ?? []) as unknown as SubLine[]) {
+    const items = (s.submission_items ?? [])
+      .filter((it) => it.products?.category_id === input.categoryId && it.qty > 0)
+      .map((it) => ({ name: it.products!.name, qty: it.qty, unit: it.products!.unit ?? "" }));
+    if (items.length === 0) continue;
+    const gtotal = items.reduce((a, b) => a + b.qty, 0);
+    total += gtotal;
+    dataGroups.push({ name: groupName.get(s.customer_group_id ?? "") ?? "—", items, total: gtotal });
+  }
+
+  const text = buildWorkerCategory(
+    {
+      dateLabel: new Date(input.date).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }),
+      worker: `${session.name} · ${session.code}`,
+      categoryName: cat?.name ?? input.categoryId,
+      unitTh: cat?.report_unit_th ?? "",
+      groups: dataGroups,
+      total,
+    },
+    settings,
+  );
+
+  const res = await pushText(settings.token, settings.recipientId, text);
+  if (!res.ok) return { ok: false, error: res.error };
+
+  await supabase
+    .from("category_line_sends")
+    .upsert(
+      { worker_id: session.id, usage_date: input.date, category_id: input.categoryId, sent_at: new Date().toISOString() },
+      { onConflict: "worker_id,usage_date,category_id" },
+    );
   revalidatePath("/worker");
   return { ok: true, time: new Date().toTimeString().slice(0, 5) };
 }

@@ -209,6 +209,29 @@ create table if not exists public.notification_logs (
   unique (kind, period_key)
 );
 
+-- ---------------------------------------------------------------------------
+--  Worker per-category progress + LINE send status (category-first flow).
+--  marks: which (category, customer group) a worker has recorded today (even
+--  with zero qty) → used to know a category is "complete" across all groups.
+--  line sends: which categories the worker has pushed to LINE today.
+-- ---------------------------------------------------------------------------
+create table if not exists public.submission_category_marks (
+  worker_id         uuid not null,
+  usage_date        date not null,
+  category_id       text not null,
+  customer_group_id text not null,
+  marked_at         timestamptz not null default now(),
+  primary key (worker_id, usage_date, category_id, customer_group_id)
+);
+
+create table if not exists public.category_line_sends (
+  worker_id   uuid not null,
+  usage_date  date not null,
+  category_id text not null,
+  sent_at     timestamptz not null default now(),
+  primary key (worker_id, usage_date, category_id)
+);
+
 -- ===========================================================================
 --  Auth helpers
 -- ===========================================================================
@@ -365,6 +388,14 @@ begin
     update public.products set stock = stock - n where id = pid;
   end loop;
 
+  -- mark this (category, group) as recorded; reset the category's LINE-sent flag
+  -- (data changed → must be re-sent) so nothing goes out stale.
+  insert into public.submission_category_marks(worker_id, usage_date, category_id, customer_group_id)
+  values (p_worker, p_date, p_category, p_group)
+  on conflict (worker_id, usage_date, category_id, customer_group_id) do update set marked_at = now();
+  delete from public.category_line_sends
+    where worker_id = p_worker and usage_date = p_date and category_id = p_category;
+
   insert into public.audit_log(who, action, detail)
   values (coalesce(w_code, 'worker'), 'ส่งข้อมูลการใช้ประจำวัน',
           format('%s · วันที่ %s',
@@ -386,7 +417,8 @@ begin
   foreach t in array array[
     'report_units','viz_types','profiles','categories','products',
     'customer_groups','workers','stock_transactions','daily_submissions',
-    'submission_items','adjustments','audit_log','app_settings','notification_logs'
+    'submission_items','adjustments','audit_log','app_settings','notification_logs',
+    'submission_category_marks','category_line_sends'
   ]
   loop
     execute format('alter table public.%I enable row level security;', t);

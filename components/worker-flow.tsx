@@ -8,7 +8,7 @@ import { GROUP_ICON, CAT_ICON } from "@/lib/nav";
 import { Icon, type IconName } from "@/components/icon";
 import { Btn } from "@/components/ui";
 import { workerSignOut } from "@/app/auth/actions";
-import { submitUsage } from "@/app/worker/(secure)/actions";
+import { submitUsage, sendCategoryLine } from "@/app/worker/(secure)/actions";
 
 export type ExistingSubmission = {
   group: string | null;
@@ -27,6 +27,8 @@ export function WorkerFlow({
   products,
   today,
   existing,
+  recorded,
+  sent,
 }: {
   worker: { name: string; code: string };
   customerGroups: CustomerGroup[];
@@ -34,6 +36,8 @@ export function WorkerFlow({
   products: Product[];
   today: string;
   existing: ExistingSubmission[];
+  recorded: Record<string, string[]>;
+  sent: string[];
 }) {
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const catIdsByCat = useMemo(() => {
@@ -53,6 +57,31 @@ export function WorkerFlow({
   const [time, setTime] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+
+  // per-category progress (groups recorded) + LINE-sent status, mirrored locally
+  const [marksByCat, setMarksByCat] = useState<Record<string, Set<string>>>(() => {
+    const m: Record<string, Set<string>> = {};
+    for (const [cat, gs] of Object.entries(recorded)) m[cat] = new Set(gs);
+    return m;
+  });
+  const [sentCats, setSentCats] = useState<Set<string>>(new Set(sent));
+  const [lineMsg, setLineMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const groupCount = customerGroups.length;
+  const statusOf = (catId: string) => ({ recorded: marksByCat[catId]?.size ?? 0, total: groupCount, sent: sentCats.has(catId) });
+
+  const sendLine = (catId: string) => {
+    setLineMsg(null);
+    start(async () => {
+      const res = await sendCategoryLine({ date, categoryId: catId });
+      if (res.ok) {
+        setSentCats((prev) => new Set(prev).add(catId));
+        setLineMsg({ ok: true, text: `ส่ง LINE หมวดนี้แล้ว · ${res.time ?? ""} น.` });
+        router.refresh();
+      } else {
+        setLineMsg({ ok: false, text: res.error || "ส่ง LINE ไม่สำเร็จ" });
+      }
+    });
+  };
 
   const groupName = (id: string | null) => customerGroups.find((g) => g.id === id)?.name;
   const catName = (id: string | null) => categories.find((c) => c.id === id)?.name;
@@ -87,6 +116,7 @@ export function WorkerFlow({
     setCurrentCat(catId);
     setNoUsage(false);
     setError(null);
+    setLineMsg(null);
     setStep("pick");
   };
 
@@ -131,6 +161,21 @@ export function WorkerFlow({
         const kept = prev.filter((s) => s.noUsage || s.group !== group);
         return [...kept, { group, noUsage: false, items: merged, time: t }];
       });
+      if (!noUsage && currentCat && group) {
+        // record this (category, group); reset the category's sent flag (data changed)
+        setMarksByCat((prev) => {
+          const m = { ...prev };
+          const s = new Set(m[currentCat] ?? []);
+          s.add(group);
+          m[currentCat] = s;
+          return m;
+        });
+        setSentCats((prev) => {
+          const s = new Set(prev);
+          s.delete(currentCat);
+          return s;
+        });
+      }
       setStep("success");
       router.refresh();
     });
@@ -143,6 +188,7 @@ export function WorkerFlow({
           worker={worker}
           categories={categories}
           catTotalToday={catTotalToday}
+          statusOf={statusOf}
           hasSubs={subs.length > 0}
           onPickCat={pickCat}
           onNoUsage={startNoUsage}
@@ -155,6 +201,13 @@ export function WorkerFlow({
           catName={catName(currentCat)}
           customerGroups={customerGroups}
           doneGroups={groupsWithCat(currentCat ?? "")}
+          complete={(marksByCat[currentCat ?? ""]?.size ?? 0) >= groupCount && groupCount > 0}
+          sent={sentCats.has(currentCat ?? "")}
+          recordedCount={marksByCat[currentCat ?? ""]?.size ?? 0}
+          groupCount={groupCount}
+          sending={pending}
+          lineMsg={lineMsg}
+          onSend={() => currentCat && sendLine(currentCat)}
           onBack={() => setStep("catpick")}
           onPick={pickGroup}
         />
@@ -237,6 +290,7 @@ function CatPickScreen({
   worker,
   categories,
   catTotalToday,
+  statusOf,
   hasSubs,
   onPickCat,
   onNoUsage,
@@ -245,6 +299,7 @@ function CatPickScreen({
   worker: { name: string; code: string };
   categories: Category[];
   catTotalToday: (catId: string) => number;
+  statusOf: (catId: string) => { recorded: number; total: number; sent: boolean };
   hasSubs: boolean;
   onPickCat: (catId: string) => void;
   onNoUsage: () => void;
@@ -264,6 +319,7 @@ function CatPickScreen({
         <Label th="เลือกหมวดหมู่สินค้า" en="Choose a product category" />
         {categories.map((c) => {
           const t = catTotalToday(c.id);
+          const st = statusOf(c.id);
           return (
             <button
               key={c.id}
@@ -274,11 +330,13 @@ function CatPickScreen({
               <span style={{ width: 46, height: 46, borderRadius: 13, background: t > 0 ? "var(--accent-soft)" : "var(--surface-3)", color: t > 0 ? "var(--accent)" : "var(--ink-3)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
                 <Icon name={(CAT_ICON[c.id] as IconName) || "box"} size={24} />
               </span>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 17, fontWeight: 600 }}>{c.name}</div>
-                <div className="en" style={{ fontSize: 12 }}>{c.name_en}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 1 }}>
+                  {t > 0 ? <span className="tnum">ใช้วันนี้ {t}</span> : <span>ยังไม่กรอก</span>}
+                </div>
               </div>
-              {t > 0 ? <span className="pill blue tnum">{t}</span> : <Icon name="chevR" size={20} style={{ color: "var(--ink-4)" }} />}
+              <CatStatusBadge recorded={st.recorded} total={st.total} sent={st.sent} />
             </button>
           );
         })}
@@ -309,22 +367,36 @@ function CatPickScreen({
   );
 }
 
-/* ---------- 2) customer-group picker ---------- */
+/* ---------- 2) customer-group picker (+ per-category LINE send) ---------- */
 function PickScreen({
   catName,
   customerGroups,
   doneGroups,
+  complete,
+  sent,
+  recordedCount,
+  groupCount,
+  sending,
+  lineMsg,
+  onSend,
   onBack,
   onPick,
 }: {
   catName?: string;
   customerGroups: CustomerGroup[];
   doneGroups: Set<string>;
+  complete: boolean;
+  sent: boolean;
+  recordedCount: number;
+  groupCount: number;
+  sending: boolean;
+  lineMsg: { ok: boolean; text: string } | null;
+  onSend: () => void;
   onBack: () => void;
   onPick: (g: string) => void;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column" }}>
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 14px 12px" }}>
         <button onClick={onBack} style={{ border: "none", background: "var(--surface-3)", borderRadius: 11, width: 38, height: 38, color: "var(--ink-2)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
           <Icon name="chevL" size={20} />
@@ -334,7 +406,7 @@ function PickScreen({
           <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{catName}</div>
         </div>
       </div>
-      <div style={{ padding: "4px 18px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: "4px 18px 22px", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
         {customerGroups.map((g) => {
           const done = doneGroups.has(g.id);
           return (
@@ -356,7 +428,58 @@ function PickScreen({
           );
         })}
       </div>
+
+      {/* per-category LINE send — only when all groups are recorded */}
+      <div style={{ position: "sticky", bottom: 0, padding: 14, background: "linear-gradient(transparent, var(--surface-2) 26%)" }}>
+        {lineMsg && (
+          <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, background: lineMsg.ok ? "var(--green-soft)" : "var(--red-soft)", color: lineMsg.ok ? "var(--green-ink)" : "var(--red-ink)" }}>
+            {lineMsg.text}
+          </div>
+        )}
+        {complete ? (
+          sent ? (
+            <Btn kind="soft" size="lg" full icon="chat" disabled={sending} onClick={onSend}>
+              <Icon name="check" size={17} /> ส่ง LINE แล้ว · ส่งซ้ำ <span className="en">Re-send</span>
+            </Btn>
+          ) : (
+            <Btn kind="primary" size="lg" full icon="chat" disabled={sending} onClick={onSend} style={{ boxShadow: "var(--sh-2)" }}>
+              {sending ? "กำลังส่ง…" : "ส่ง LINE (หมวดนี้)"} <span className="en" style={{ color: "rgba(255,255,255,.75)" }}>Send</span>
+            </Btn>
+          )
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", borderRadius: 12, background: "var(--amber-soft)", color: "var(--amber-ink)", fontSize: 13, fontWeight: 600 }}>
+            <Icon name="alert" size={16} style={{ flex: "none" }} /> กรอกให้ครบทุกกลุ่มก่อนส่ง LINE ({recordedCount}/{groupCount} กลุ่ม)
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+/* category status chip on the landing screen */
+function CatStatusBadge({ recorded, total, sent }: { recorded: number; total: number; sent: boolean }) {
+  if (sent)
+    return (
+      <span className="pill green" style={{ flex: "none" }}>
+        <Icon name="check" size={13} /> ส่ง LINE แล้ว
+      </span>
+    );
+  if (recorded >= total && total > 0)
+    return (
+      <span className="pill amber" style={{ flex: "none" }}>
+        <Icon name="alert" size={13} /> รอส่ง LINE
+      </span>
+    );
+  if (recorded > 0)
+    return (
+      <span className="pill amber" style={{ flex: "none" }}>
+        <Icon name="alert" size={13} /> {recorded}/{total} กลุ่ม
+      </span>
+    );
+  return (
+    <span className="pill grey" style={{ flex: "none" }}>
+      <Icon name="chevR" size={14} />
+    </span>
   );
 }
 

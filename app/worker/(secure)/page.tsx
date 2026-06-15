@@ -8,7 +8,7 @@ export default async function WorkerHome() {
   const supabase = createServiceClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [groups, cats, prods, subs] = await Promise.all([
+  const [groups, cats, prods, subs, marks, sends] = await Promise.all([
     supabase.from("customer_groups").select("*").eq("active", true),
     supabase
       .from("categories")
@@ -24,6 +24,12 @@ export default async function WorkerHome() {
       .eq("worker_id", session.id)
       .eq("usage_date", today)
       .order("submitted_at", { ascending: true }),
+    supabase
+      .from("submission_category_marks")
+      .select("category_id, customer_group_id")
+      .eq("worker_id", session.id)
+      .eq("usage_date", today),
+    supabase.from("category_line_sends").select("category_id").eq("worker_id", session.id).eq("usage_date", today),
   ]);
 
   type SubRow = {
@@ -39,6 +45,13 @@ export default async function WorkerHome() {
     time: s.submitted_at ? new Date(s.submitted_at).toTimeString().slice(0, 5) : "",
   }));
 
+  // catId → array of group ids the worker has recorded today
+  const recorded: Record<string, string[]> = {};
+  for (const m of (marks.data ?? []) as { category_id: string; customer_group_id: string }[]) {
+    (recorded[m.category_id] ??= []).push(m.customer_group_id);
+  }
+  const sent = ((sends.data ?? []) as { category_id: string }[]).map((r) => r.category_id);
+
   return (
     <WorkerFlow
       worker={{ name: session.name, code: session.code }}
@@ -47,6 +60,8 @@ export default async function WorkerHome() {
       products={(prods.data ?? []) as Product[]}
       today={today}
       existing={existing}
+      recorded={recorded}
+      sent={sent}
     />
   );
 }
