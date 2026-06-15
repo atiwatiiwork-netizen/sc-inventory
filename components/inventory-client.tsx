@@ -57,7 +57,7 @@ export function InventoryClient({ categories, products }: { categories: Category
       </div>
 
       {isRail && !q && (
-        <Panel title="ตารางสต็อกรางเหล็ก" en="Size × Length matrix" style={{ marginBottom: 16 }} right={<Legend />}>
+        <Panel title="สต็อกรางเหล็ก" en="จัดกลุ่มตามชนิดราง · แยกตามความยาว" style={{ marginBottom: 16 }} right={<Legend />}>
           <StatusMatrix products={products.filter((p) => p.category_id === cat)} />
         </Panel>
       )}
