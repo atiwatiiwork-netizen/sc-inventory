@@ -19,7 +19,7 @@ function lowstockOf(prods: Product[]): { items: LowItem[]; count: number } {
   const low = prods
     .filter((p) => stockStatus(p) !== "green")
     .sort((a, b) => a.stock / Math.max(a.min_stock, 1) - b.stock / Math.max(b.min_stock, 1));
-  return { items: low.map((p) => ({ name: p.name, stock: p.stock, min: p.min_stock })), count: low.length };
+  return { items: low.map((p) => ({ name: p.name, stock: p.stock, min: p.min_stock, unit: p.unit })), count: low.length };
 }
 
 async function topGroupName(supabase: SupabaseClient, totals: Record<string, number>): Promise<string | null> {

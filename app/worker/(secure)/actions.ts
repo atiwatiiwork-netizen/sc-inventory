@@ -6,7 +6,7 @@ import { getWorkerSession } from "@/lib/worker-session";
 import { maybeSendDailyAfterSubmit } from "@/lib/line/send";
 import { getLineSettings } from "@/lib/settings";
 import { pushText } from "@/lib/line/client";
-import { buildWorkerCategory, type WorkerCatData } from "@/lib/line/format";
+import { buildWorkerCategory, formatDateThai, type WorkerCatData } from "@/lib/line/format";
 
 export type UsageLine = { product_id: string; qty: number };
 export type SubmitResult = { ok: boolean; error?: string; time?: string };
@@ -58,7 +58,7 @@ export async function submitUsage(input: {
 type SubLine = {
   customer_group_id: string | null;
   submission_items:
-    | { qty: number; products: { name: string; category_id: string | null; unit: string | null } | null }[]
+    | { qty: number; products: { name: string; category_id: string | null; unit: string | null; length_m: number | null } | null }[]
     | null;
 };
 
@@ -94,36 +94,33 @@ export async function sendCategoryLine(input: { date: string; categoryId: string
   }
 
   const [{ data: cat }, { data: subs }] = await Promise.all([
-    supabase.from("categories").select("name, report_unit_th").eq("id", input.categoryId).maybeSingle(),
+    supabase.from("categories").select("name, report_unit, viz").eq("id", input.categoryId).maybeSingle(),
     supabase
       .from("daily_submissions")
-      .select("customer_group_id, submission_items(qty, products(name, category_id, unit))")
+      .select("customer_group_id, submission_items(qty, products(name, category_id, unit, length_m))")
       .eq("worker_id", session.id)
       .eq("usage_date", input.date)
       .eq("no_usage", false),
   ]);
 
   const groupName = new Map(groupList.map((g) => [g.id, g.name]));
-  let total = 0;
   const dataGroups: WorkerCatData["groups"] = [];
   for (const s of (subs ?? []) as unknown as SubLine[]) {
     const items = (s.submission_items ?? [])
       .filter((it) => it.products?.category_id === input.categoryId && it.qty > 0)
-      .map((it) => ({ name: it.products!.name, qty: it.qty, unit: it.products!.unit ?? "" }));
+      .map((it) => ({ name: it.products!.name, qty: it.qty, unit: it.products!.unit ?? "", lengthM: it.products!.length_m }));
     if (items.length === 0) continue;
-    const gtotal = items.reduce((a, b) => a + b.qty, 0);
-    total += gtotal;
-    dataGroups.push({ name: groupName.get(s.customer_group_id ?? "") ?? "—", items, total: gtotal });
+    dataGroups.push({ name: groupName.get(s.customer_group_id ?? "") ?? "—", items });
   }
 
+  const isRail = cat?.viz === "rail" || cat?.report_unit === "m";
   const text = buildWorkerCategory(
     {
-      dateLabel: new Date(input.date).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }),
-      worker: `${session.name} · ${session.code}`,
+      dateLabel: formatDateThai(input.date),
+      worker: `${session.name} (${session.code})`,
       categoryName: cat?.name ?? input.categoryId,
-      unitTh: cat?.report_unit_th ?? "",
+      isRail,
       groups: dataGroups,
-      total,
     },
     settings,
   );

@@ -2,15 +2,26 @@
 
 import { useState, useTransition } from "react";
 import type { LineSettings } from "@/lib/line/settings-types";
-import { buildDaily, type DailyData } from "@/lib/line/format";
+import { buildDaily, buildWeekly, buildMonthly, buildLowstockAlert, buildWorkerCategory, type DailyData } from "@/lib/line/format";
+import { SAMPLE_LOWSTOCK, SAMPLE_WEEKLY, SAMPLE_MONTHLY, SAMPLE_WORKERCAT } from "@/lib/line/samples";
 import { Icon } from "@/components/icon";
 import { Btn, Field, Panel, ScreenHead, SelectInput, TextInput, Toggle, inputStyle } from "@/components/ui";
 import { saveLine, sendTest } from "@/app/admin/(console)/line/actions";
+
+type PreviewTab = "daily" | "lowstock" | "weekly" | "monthly" | "worker";
+const PREVIEW_TABS: { id: PreviewTab; label: string }[] = [
+  { id: "daily", label: "รายวัน" },
+  { id: "lowstock", label: "สต็อกต่ำ" },
+  { id: "weekly", label: "รายสัปดาห์" },
+  { id: "monthly", label: "รายเดือน" },
+  { id: "worker", label: "ราย SKU พนักงาน" },
+];
 
 export function LineSettingsClient({ initial, preview }: { initial: LineSettings; preview: DailyData }) {
   const [f, setF] = useState<LineSettings>(initial);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [tab, setTab] = useState<PreviewTab>("daily");
 
   function up<K extends keyof LineSettings>(key: K, value: LineSettings[K]) {
     setF((s) => ({ ...s, [key]: value }));
@@ -28,7 +39,16 @@ export function LineSettingsClient({ initial, preview }: { initial: LineSettings
       setMsg(r.ok ? { ok: true, text: "ส่งข้อความทดสอบไปยัง LINE แล้ว" } : { ok: false, text: r.error || "ส่งทดสอบไม่สำเร็จ" });
     });
 
-  const previewText = buildDaily(preview, f);
+  const previewText =
+    tab === "daily"
+      ? buildDaily(preview, f)
+      : tab === "lowstock"
+        ? buildLowstockAlert(SAMPLE_LOWSTOCK, f)
+        : tab === "weekly"
+          ? buildWeekly(SAMPLE_WEEKLY, f)
+          : tab === "monthly"
+            ? buildMonthly(SAMPLE_MONTHLY, f)
+            : buildWorkerCategory(SAMPLE_WORKERCAT, f);
 
   return (
     <div className="fade-up">
@@ -133,9 +153,30 @@ export function LineSettingsClient({ initial, preview }: { initial: LineSettings
               </span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 700 }}>ตัวอย่างข้อความ LINE</div>
-                <div className="en" style={{ fontSize: 11.5 }}>Live preview · daily summary</div>
+                <div className="en" style={{ fontSize: 11.5 }}>Live preview</div>
               </div>
               <span className="pill grey">{f.recipientName || "ผู้รับ"}</span>
+            </div>
+            {/* message-type selector */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "10px 14px", borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
+              {PREVIEW_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  style={{
+                    padding: "5px 11px",
+                    borderRadius: 99,
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    border: "1px solid " + (tab === t.id ? "var(--accent)" : "var(--border-2)"),
+                    background: tab === t.id ? "var(--accent)" : "var(--surface)",
+                    color: tab === t.id ? "#fff" : "var(--ink-2)",
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
             <div style={{ padding: 18, background: "#8aa9c9", display: "flex", justifyContent: "flex-start" }}>
               <div className="mono" style={{ background: "#fff", borderRadius: "4px 16px 16px 16px", padding: "14px 16px", maxWidth: 360, boxShadow: "0 1px 2px rgba(0,0,0,.15)", fontSize: 13.5, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
@@ -144,7 +185,7 @@ export function LineSettingsClient({ initial, preview }: { initial: LineSettings
             </div>
           </div>
           <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 10, lineHeight: 1.6, padding: "0 2px" }}>
-            ตัวอย่างนี้ใช้ข้อมูลจริงของวันนี้ · เปลี่ยนการตั้งค่าด้านซ้ายเพื่อดูผลทันที แล้วกด &ldquo;บันทึก&rdquo;
+            {tab === "daily" ? "รายวันใช้ข้อมูลจริงของวันนี้" : "ตัวอย่างนี้เป็นข้อมูลสมมุติเพื่อดูรูปแบบ"} · เปลี่ยนการตั้งค่าด้านซ้าย (เช่น ข้อความหัว/ท้าย) เพื่อดูผลทันที แล้วกด &ldquo;บันทึก&rdquo;
           </div>
         </div>
       </div>
