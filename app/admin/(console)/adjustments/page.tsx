@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Product } from "@/lib/types";
+import type { Category, Product } from "@/lib/types";
 import { AdjustClient, type AdjustRow } from "@/components/adjust-client";
 
 type AdjQueryRow = {
@@ -14,8 +14,9 @@ type AdjQueryRow = {
 
 export default async function AdjustmentsPage() {
   const supabase = await createClient();
-  const [prods, adj] = await Promise.all([
+  const [prods, cats, adj] = await Promise.all([
     supabase.from("products").select("*").eq("active", true).order("display_order"),
+    supabase.from("categories").select("*").eq("archived", false).order("display_order"),
     supabase
       .from("adjustments")
       .select("adj_date, system_qty, actual_qty, diff, note, created_by, products(sku, name)")
@@ -34,5 +35,5 @@ export default async function AdjustmentsPage() {
     by: r.created_by,
   }));
 
-  return <AdjustClient products={(prods.data ?? []) as Product[]} history={history} />;
+  return <AdjustClient products={(prods.data ?? []) as Product[]} categories={(cats.data ?? []) as Category[]} history={history} />;
 }

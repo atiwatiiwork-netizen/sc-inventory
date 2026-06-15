@@ -24,3 +24,17 @@ export async function recordAdjustment(input: { productId: string; actual: numbe
   revalidatePath("/admin/inventory");
   return { ok: true, diff: (data as number) ?? 0 };
 }
+
+/** Reset every product in a category to 0 (testing / bulk fix). */
+export async function resetCategory(categoryId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data, error } = await supabase.rpc("reset_category_stock", { p_category: categoryId, p_by: user?.email ?? "admin" });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin/adjustments");
+  revalidatePath("/admin/products");
+  revalidatePath("/admin/inventory");
+  return { ok: true, diff: (data as number) ?? 0 };
+}
