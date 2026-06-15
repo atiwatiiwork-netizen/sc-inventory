@@ -11,6 +11,8 @@ export type ProductInput = {
   category_id: string;
   unit: string;
   variant: string;
+  pack_unit: string;
+  pack_size: number;
   size: string;
   length: string;
   min_stock: number;
@@ -38,6 +40,8 @@ export async function saveProduct(input: ProductInput): Promise<ActionResult> {
     category_id: input.category_id,
     unit: input.unit.trim() || null,
     variant: input.variant.trim() || null,
+    pack_unit: input.pack_unit.trim() || null,
+    pack_size: input.pack_size > 1 ? input.pack_size : null,
     size: input.size.trim() || null,
     length: input.length.trim() || null,
     length_m: parseLengthM(input.length),

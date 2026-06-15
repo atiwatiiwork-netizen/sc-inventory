@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Category, Product } from "@/lib/types";
 import { entryGroups } from "@/lib/grouping";
+import { hasPack, toPacks, toBase } from "@/lib/pack";
 import { Icon } from "@/components/icon";
 import { Btn, Field, Panel, ScreenHead, TextInput } from "@/components/ui";
 import { StepDots, KV, HistoryTable, type TxnRow } from "@/components/flow-bits";
@@ -35,7 +36,7 @@ export function StockInputClient({
 
   const cat = categories.find((c) => c.id === catId) ?? null;
   const groups = cat ? entryGroups(cat, products) : [];
-  const setOne = (id: string, v: string) =>
+  const setOne = (id: string, v: string | number) =>
     setQty((q) => {
       const n = { ...q };
       const num = Number(v) || 0;
@@ -152,14 +153,16 @@ export function StockInputClient({
                       <div key={p.id}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-2)", marginBottom: 5 }}>
                           {p.length || p.name}
-                          <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)", fontWeight: 400 }}>{p.sku}</div>
+                          <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)", fontWeight: 400 }}>
+                            {p.sku}{hasPack(p) ? ` · ${p.pack_unit}` : ""}
+                          </div>
                         </div>
                         <input
                           className="tnum focusable"
                           inputMode="numeric"
-                          value={qty[p.id] || ""}
+                          value={qty[p.id] ? toPacks(qty[p.id], p) : ""}
                           placeholder="0"
-                          onChange={(e) => setOne(p.id, e.target.value.replace(/\D/g, "").slice(0, 5))}
+                          onChange={(e) => setOne(p.id, toBase(Number(e.target.value.replace(/\D/g, "").slice(0, 5)) || 0, p))}
                           style={{
                             width: "100%",
                             height: 56,
@@ -227,7 +230,10 @@ export function StockInputClient({
                       <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderBottom: "1px solid var(--surface-3)" }}>
                         <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)", width: 110 }}>{p.sku}</span>
                         <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{p.length ? `${g.label} ${p.length}` : p.name}</span>
-                        <span className="tnum" style={{ fontSize: 16, fontWeight: 700, color: "var(--green-ink)" }}>+{qty[p.id]}</span>
+                        <span className="tnum" style={{ fontSize: 16, fontWeight: 700, color: "var(--green-ink)" }}>
+                          +{hasPack(p) ? `${toPacks(qty[p.id], p)} ${p.pack_unit}` : qty[p.id]}
+                          {hasPack(p) && <span style={{ fontSize: 11, fontWeight: 400, color: "var(--ink-3)" }}> (= {qty[p.id]} {p.unit})</span>}
+                        </span>
                       </div>
                     ))}
                 </div>

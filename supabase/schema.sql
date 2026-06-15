@@ -67,9 +67,11 @@ create table if not exists public.products (
   name          text not null,
   name_en       text,
   category_id   text references public.categories(id),
-  unit          text,                -- display unit, e.g. 'เส้น'
+  unit          text,                -- base unit, e.g. 'เส้น' (stock is always stored in this)
   unit_en       text,
   variant       text,                -- optional model/variant, e.g. 'GI' (groups worker entry)
+  pack_unit     text,                -- optional pack unit worker counts in, e.g. 'มัด'
+  pack_size     int,                 -- base units per pack, e.g. 6 (เส้น/มัด)
   size          text,                -- rails only, e.g. '1"'
   length        text,                -- rails only, e.g. '3m'
   length_m      numeric,             -- rails only, drives meters calc

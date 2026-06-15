@@ -144,6 +144,8 @@ function ProductModal({
   const [nameEn, setNameEn] = useState(p?.name_en ?? "");
   const [unit, setUnit] = useState(p?.unit ?? "");
   const [variant, setVariant] = useState(p?.variant ?? "");
+  const [packUnit, setPackUnit] = useState(p?.pack_unit ?? "");
+  const [packSize, setPackSize] = useState(String(p?.pack_size ?? ""));
   const [min, setMin] = useState(String(p?.min_stock ?? ""));
   const [order, setOrder] = useState(String(p?.display_order ?? ""));
   const [size, setSize] = useState(p?.size ?? "");
@@ -162,6 +164,8 @@ function ProductModal({
       category_id: category,
       unit,
       variant,
+      pack_unit: packUnit,
+      pack_size: Number(packSize) || 0,
       size,
       length,
       min_stock: Number(min) || 0,
@@ -251,6 +255,17 @@ function ProductModal({
       </div>
       <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
         &ldquo;รุ่น/แบบ&rdquo; ใช้แยกกลุ่มตอนพนักงานกรอก (เช่น ราง GI แยกจากรางมาตรฐาน) · เว้นว่างได้ถ้าเป็นรุ่นมาตรฐาน
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <Field label="หน่วยบรรจุ (ถ้ามี)" en="Pack unit · optional">
+          <TextInput value={packUnit} onChange={(e) => setPackUnit(e.target.value)} placeholder="เช่น มัด, ลัง" />
+        </Field>
+        <Field label="จำนวนต่อหน่วยบรรจุ" en="Base units per pack">
+          <TextInput inputMode="numeric" value={packSize} onChange={(e) => setPackSize(e.target.value.replace(/\D/g, ""))} placeholder="เช่น 6" />
+        </Field>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
+        ถ้ากรอกหน่วยบรรจุ พนักงานจะกรอกเป็น &ldquo;{packUnit || "มัด"}&rdquo; แล้วระบบคูณเป็น &ldquo;{unit || "เส้น"}&rdquo; ให้ (เช่น 1 {packUnit || "มัด"} = {packSize || "6"} {unit || "เส้น"}) · เว้นว่างถ้านับเป็นหน่วยย่อยปกติ
       </div>
       <label
         style={{

@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Category, CustomerGroup, Product } from "@/lib/types";
 import { entryGroups, sumMeters, sumQty } from "@/lib/grouping";
+import { hasPack, toPacks, toBase, entryUnit } from "@/lib/pack";
 import { GROUP_ICON, CAT_ICON } from "@/lib/nav";
 import { Icon, type IconName } from "@/components/icon";
 import { Btn } from "@/components/ui";
@@ -552,45 +553,55 @@ function EntryScreen({
         </button>
 
         {category.viz === "rail" ? (
-          groups.map((g) => (
-            <div key={g.key} className="card" style={{ padding: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-2)", marginBottom: 8 }}>{g.label}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
-                {g.items.map((p) => (
-                  <div key={p.id}>
-                    <div style={{ fontSize: 11, color: "var(--ink-3)", textAlign: "center", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.name}>{p.length || p.name}</div>
-                    <input
-                      className="tnum focusable"
-                      inputMode="numeric"
-                      value={qty[p.id] || ""}
-                      placeholder="0"
-                      onChange={(e) => setOne(p.id, e.target.value.replace(/\D/g, "").slice(0, 4))}
-                      style={{
-                        width: "100%",
-                        height: 52,
-                        textAlign: "center",
-                        fontSize: 20,
-                        fontWeight: 700,
-                        borderRadius: 11,
-                        border: "1px solid var(--border-2)",
-                        background: qty[p.id] ? "var(--accent-soft)" : "var(--surface-2)",
-                        color: qty[p.id] ? "var(--accent-ink)" : "var(--ink-4)",
-                      }}
-                    />
-                  </div>
-                ))}
+          groups.map((g) => {
+            const gPackUnit = g.items[0] && hasPack(g.items[0]) ? g.items[0].pack_unit : null;
+            return (
+              <div key={g.key} className="card" style={{ padding: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-2)", marginBottom: 8 }}>
+                  {g.label} {gPackUnit && <span style={{ fontWeight: 500, color: "var(--ink-3)", fontSize: 12 }}>· กรอกเป็น{gPackUnit}</span>}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7 }}>
+                  {g.items.map((p) => {
+                    const packs = qty[p.id] ? toPacks(qty[p.id], p) : 0;
+                    return (
+                      <div key={p.id}>
+                        <div style={{ fontSize: 11, color: "var(--ink-3)", textAlign: "center", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.name}>{p.length || p.name}</div>
+                        <input
+                          className="tnum focusable"
+                          inputMode="numeric"
+                          value={packs || ""}
+                          placeholder="0"
+                          onChange={(e) => setOne(p.id, toBase(Number(e.target.value.replace(/\D/g, "").slice(0, 4)) || 0, p))}
+                          style={{
+                            width: "100%",
+                            height: 52,
+                            textAlign: "center",
+                            fontSize: 20,
+                            fontWeight: 700,
+                            borderRadius: 11,
+                            border: "1px solid var(--border-2)",
+                            background: qty[p.id] ? "var(--accent-soft)" : "var(--surface-2)",
+                            color: qty[p.id] ? "var(--accent-ink)" : "var(--ink-4)",
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         ) : (
           <div className="card" style={{ overflow: "hidden" }}>
             {groups.flatMap((g) => g.items).map((p) => (
               <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderBottom: "1px solid var(--surface-3)" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                  <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{p.sku} · {p.unit}</div>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                    {p.sku} · {entryUnit(p)}{hasPack(p) ? ` (${p.pack_size} ${p.unit})` : ""}
+                  </div>
                 </div>
-                <Stepper value={qty[p.id] || 0} onChange={(v) => setOne(p.id, v)} />
+                <Stepper value={toPacks(qty[p.id] || 0, p)} onChange={(v) => setOne(p.id, toBase(v, p))} />
               </div>
             ))}
           </div>
@@ -714,9 +725,10 @@ function ReviewScreen({
                   <div style={{ fontSize: 14.5, fontWeight: 600 }}>{p.name}</div>
                   <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{p.sku}</div>
                 </div>
-                <div className="tnum" style={{ fontSize: 19, fontWeight: 700 }}>
-                  {n}
-                  <span style={{ fontSize: 12, color: "var(--ink-3)", fontWeight: 500, marginLeft: 3 }}>{p.unit}</span>
+                <div className="tnum" style={{ fontSize: 19, fontWeight: 700, textAlign: "right" }}>
+                  {hasPack(p) ? toPacks(n, p) : n}
+                  <span style={{ fontSize: 12, color: "var(--ink-3)", fontWeight: 500, marginLeft: 3 }}>{entryUnit(p)}</span>
+                  {hasPack(p) && <div style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 400 }}>= {n} {p.unit}</div>}
                 </div>
               </div>
             ))}

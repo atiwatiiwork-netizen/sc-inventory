@@ -24,6 +24,8 @@ export type Product = {
   unit: string | null;
   unit_en: string | null;
   variant: string | null;
+  pack_unit: string | null;
+  pack_size: number | null;
   size: string | null;
   length: string | null;
   length_m: number | null;
