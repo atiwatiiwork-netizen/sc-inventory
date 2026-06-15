@@ -106,12 +106,6 @@ export function WorkerFlow({
     }
     return t;
   };
-  // groups that already have items for the current category
-  const groupsWithCat = (catId: string) => {
-    const ids = catIdsByCat.get(catId) ?? new Set();
-    return new Set(subs.filter((s) => !s.noUsage && s.group && Object.entries(s.items).some(([id, q]) => ids.has(id) && q > 0)).map((s) => s.group as string));
-  };
-
   const pickCat = (catId: string) => {
     setCurrentCat(catId);
     setNoUsage(false);
@@ -138,9 +132,11 @@ export function WorkerFlow({
     setStep("review");
   };
 
-  const confirm = () => {
+  // submit `submitQty` for the current (category, group). Empty map = "no delivery
+  // for this group" → records the category as done for this group with all zeros.
+  const doSubmit = (submitQty: Record<string, number>) => {
     setError(null);
-    const lines = Object.entries(qty).map(([product_id, q]) => ({ product_id, qty: q }));
+    const lines = Object.entries(submitQty).map(([product_id, q]) => ({ product_id, qty: q }));
     start(async () => {
       const res = await submitUsage({ date, group, noUsage, categoryId: currentCat, lines });
       if (!res.ok) {
@@ -157,12 +153,16 @@ export function WorkerFlow({
         const ids = catIdsByCat.get(currentCat ?? "") ?? new Set();
         const ex = prev.find((s) => !s.noUsage && s.group === group);
         const otherItems = ex ? Object.fromEntries(Object.entries(ex.items).filter(([id]) => !ids.has(id))) : {};
-        const merged = { ...otherItems, ...qty };
+        const merged = { ...otherItems, ...submitQty };
         const kept = prev.filter((s) => s.noUsage || s.group !== group);
         return [...kept, { group, noUsage: false, items: merged, time: t }];
       });
-      if (!noUsage && currentCat && group) {
-        // record this (category, group); reset the category's sent flag (data changed)
+      if (noUsage) {
+        setStep("success");
+        router.refresh();
+        return;
+      }
+      if (currentCat && group) {
         setMarksByCat((prev) => {
           const m = { ...prev };
           const s = new Set(m[currentCat] ?? []);
@@ -176,9 +176,17 @@ export function WorkerFlow({
           return s;
         });
       }
-      setStep("success");
+      // stay on the customer-group picker for this category so the worker can
+      // finish the remaining groups (and send LINE) without bouncing out.
+      setLineMsg({ ok: true, text: `บันทึก ${groupName(group)} แล้ว${Object.keys(submitQty).length === 0 ? " (ไม่มีส่ง)" : ""}` });
+      setStep("pick");
       router.refresh();
     });
+  };
+  const confirm = () => doSubmit(qty);
+  const noDeliveryForGroup = () => {
+    setQty({});
+    doSubmit({});
   };
 
   return (
@@ -200,7 +208,7 @@ export function WorkerFlow({
         <PickScreen
           catName={catName(currentCat)}
           customerGroups={customerGroups}
-          doneGroups={groupsWithCat(currentCat ?? "")}
+          doneGroups={new Set(marksByCat[currentCat ?? ""] ?? [])}
           complete={(marksByCat[currentCat ?? ""]?.size ?? 0) >= groupCount && groupCount > 0}
           sent={sentCats.has(currentCat ?? "")}
           recordedCount={marksByCat[currentCat ?? ""]?.size ?? 0}
@@ -221,8 +229,10 @@ export function WorkerFlow({
           setOne={setOne}
           groupName={groupName(group)}
           total={total}
+          pending={pending}
           onBack={() => setStep("pick")}
           onNext={() => setStep("review")}
+          onNoDelivery={noDeliveryForGroup}
         />
       )}
 
@@ -491,8 +501,10 @@ function EntryScreen({
   setOne,
   groupName,
   total,
+  pending,
   onBack,
   onNext,
+  onNoDelivery,
 }: {
   category: Category | undefined;
   products: Product[];
@@ -500,8 +512,10 @@ function EntryScreen({
   setOne: (id: string, v: number | string) => void;
   groupName?: string;
   total: number;
+  pending: boolean;
   onBack: () => void;
   onNext: () => void;
+  onNoDelivery: () => void;
 }) {
   if (!category) return null;
   const groups = entryGroups(category, products);
@@ -522,6 +536,21 @@ function EntryScreen({
       </div>
 
       <div style={{ padding: "14px 16px 120px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <button
+          onClick={onNoDelivery}
+          disabled={pending}
+          className="focusable"
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 12, border: "1.5px dashed var(--border-2)", background: "transparent", color: "var(--ink-2)", textAlign: "left" }}
+        >
+          <span style={{ width: 34, height: 34, borderRadius: 9, background: "var(--surface-3)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+            <Icon name="x" size={18} />
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>วันนี้สายนี้ไม่มีส่งหมวดนี้</div>
+            <div className="en" style={{ fontSize: 11 }}>No delivery for this group · บันทึกเป็น 0</div>
+          </div>
+        </button>
+
         {category.viz === "rail" ? (
           groups.map((g) => (
             <div key={g.key} className="card" style={{ padding: 14 }}>
