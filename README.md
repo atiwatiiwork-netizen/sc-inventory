@@ -224,7 +224,9 @@ app/
       low-stock/               ✅ alerts (static colours + dynamic insights)
       reports/                 ✅ category reports (daily/weekly/monthly)
       line/                    ✅ LINE settings + live preview + test send
-      adjustments|...          optional management screens (later)
+      adjustments/             ✅ stock adjustments (physical count)
+      customer-groups/         ✅ customer-group management
+      workers/                 ✅ worker PIN management
   api/cron/{daily,weekly,monthly}/  ✅ Vercel Cron endpoints (secret-protected)
   worker/
     login/                     PIN keypad (public)
