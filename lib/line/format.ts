@@ -60,17 +60,17 @@ export function wrapLineForLineApp(text: string, width = 34): string {
 
 /** A light section divider. */
 export function buildDivider(): string {
-  return "──────────";
+  return "────────────────────";
 }
 
-/** One product as two lines: "• name" then "qty unit". */
+/** One product as two lines: "• name" then indented "qty unit". */
 export function formatProductLine(name: string, qty: number, unit?: string | null): string[] {
-  return [`• ${truncateProductName(name)}`, formatQuantity(qty, unit)];
+  return [`• ${truncateProductName(name)}`, `  ${formatQuantity(qty, unit)}`];
 }
 
-/** A low-stock line, e.g. "• ราง 1\" 4m: เหลือ 18 เส้น (ขั้นต่ำ 60)". */
-export function formatLowStockLine(name: string, stock: number, min: number, unit?: string | null): string {
-  return `• ${truncateProductName(name)}: เหลือ ${formatQuantity(stock, unit)} (ขั้นต่ำ ${nf(min)})`;
+/** A low-stock item as two lines: "• name" then indented stock/min. */
+export function formatLowStockLine(name: string, stock: number, min: number, unit?: string | null): string[] {
+  return [`• ${truncateProductName(name)}`, `  เหลือ ${formatQuantity(stock, unit)} (ขั้นต่ำ ${nf(min)})`];
 }
 
 /** Category title block: emoji + name, date, optional recorder. */
@@ -108,12 +108,16 @@ export function formatSummaryFooter(totals: { value: number; unit: string }[], l
 
 /* ── block assembly ──────────────────────────────────────────────────────── */
 
-/** Join blocks (each an array of lines) with a blank line between them. */
+/** Join blocks with a blank line between them, except after a divider (no blank after). */
 function assemble(blocks: string[][], s: LineSettings): string {
-  const body = blocks
-    .filter((b) => b.length > 0)
-    .map((b) => b.join("\n"))
-    .join("\n\n");
+  const div = buildDivider();
+  const parts = blocks.filter((b) => b.length > 0).map((b) => b.join("\n"));
+  let body = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i === 0) { body = parts[i]; continue; }
+    body += parts[i - 1] === div ? "\n" : "\n\n";
+    body += parts[i];
+  }
   const out: string[] = [];
   if (s.headerText.trim()) out.push(wrapLineForLineApp(s.headerText.trim()), "");
   out.push(body);
@@ -172,7 +176,7 @@ export type WorkerCatData = {
 function lowstockBlock(d: { lowstock: LowItem[]; lowstockCount: number }, s: LineSettings): string[] {
   const lines = [`⚠️ สต็อกต่ำกว่าขั้นต่ำ: ${d.lowstockCount} รายการ`];
   const shown = d.lowstock.slice(0, Math.max(0, s.lowstockMax));
-  for (const it of shown) lines.push(formatLowStockLine(it.name, it.stock, it.min, it.unit));
+  for (const it of shown) lines.push(...formatLowStockLine(it.name, it.stock, it.min, it.unit));
   if (d.lowstockCount > shown.length) lines.push(`+ อีก ${d.lowstockCount - shown.length} รายการ — ดูในเว็บแอป →`);
   return lines;
 }
@@ -190,9 +194,9 @@ export function buildDaily(d: DailyData, s: LineSettings): string {
       cat.push(`• ${c.name}`);
       let qty = formatQuantity(c.value, c.unitTh);
       if (c.secondaryValue != null && c.secondaryUnitTh) qty += ` (${formatQuantity(c.secondaryValue, c.secondaryUnitTh)})`;
-      cat.push(qty);
+      cat.push(`  ${qty}`);
       if (s.detail === "detailed" && c.sizeMeters?.length) {
-        for (const sm of c.sizeMeters) cat.push(`– ${sm.size}: ${formatQuantity(sm.meters, "เมตร")}`);
+        for (const sm of c.sizeMeters) cat.push(`  – ${sm.size}: ${formatQuantity(sm.meters, "เมตร")}`);
       }
     }
     blocks.push([buildDivider()]);
@@ -225,6 +229,19 @@ export function buildLowstockAlert(
   return assemble(blocks, s);
 }
 
+/** Manual, per-category low-stock alert — one message per selected category. */
+export function buildLowstockByCategory(categoryName: string, items: LowItem[], s: LineSettings): string {
+  const blocks: string[][] = [];
+  blocks.push(["⚠️ แจ้งเตือนสต็อกต่ำ", `หมวด: ${categoryName}`, formatDateThai()]);
+  blocks.push([buildDivider()]);
+  const lines: string[] = [];
+  for (const it of items) lines.push(...formatLowStockLine(it.name, it.stock, it.min, it.unit));
+  blocks.push(lines);
+  blocks.push([buildDivider()]);
+  blocks.push([`รวมต่ำกว่าขั้นต่ำ: ${items.length} รายการ`, "จัดการเติมสต็อกในเว็บแอป →"]);
+  return assemble(blocks, s);
+}
+
 export function buildWeekly(d: WeeklyData, s: LineSettings): string {
   const blocks: string[][] = [];
   blocks.push(["📊 สรุปรายสัปดาห์", d.rangeLabel]);
@@ -233,7 +250,7 @@ export function buildWeekly(d: WeeklyData, s: LineSettings): string {
   for (const c of d.categories) {
     cat.push("");
     cat.push(`• ${c.name}`);
-    cat.push(formatQuantity(c.value, c.unitTh));
+    cat.push(`  ${formatQuantity(c.value, c.unitTh)}`);
   }
   blocks.push(cat);
   blocks.push([buildDivider()]);
@@ -253,7 +270,7 @@ export function buildMonthly(d: MonthlyData, s: LineSettings): string {
   for (const c of d.categories) {
     cat.push("");
     cat.push(`• ${c.name}`);
-    cat.push(formatQuantity(c.value, c.unitTh));
+    cat.push(`  ${formatQuantity(c.value, c.unitTh)}`);
   }
   blocks.push(cat);
   if (d.topSkus.length) {
@@ -262,7 +279,7 @@ export function buildMonthly(d: MonthlyData, s: LineSettings): string {
     d.topSkus.forEach((t, i) => {
       top.push("");
       top.push(`${i + 1}. ${truncateProductName(t.name)}`);
-      top.push(formatQuantity(t.value, t.unitTh));
+      top.push(`  ${formatQuantity(t.value, t.unitTh)}`);
     });
     blocks.push(top);
   }
