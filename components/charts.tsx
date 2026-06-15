@@ -1,5 +1,6 @@
 import type { Product } from "@/lib/types";
 import { stockStatus } from "@/lib/types";
+import { railGroups } from "@/lib/grouping";
 
 export type BarDatum = { label: string; value: number; color?: string };
 
@@ -94,40 +95,13 @@ export function Donut({ data, size = 140 }: { data: { label: string; value: numb
 }
 
 /* ---- traffic-light rail board (grouped by rail type) -------
- *  Each rail "type" is its own row — standard rails group by size
- *  ("รางเหล็ก 1\""), special ones by variant ("ราง Gi", "ราง ดำ").
- *  Within a row we show ONE card per length that actually exists,
- *  length-sorted, so there are no empty matrix cells. New sizes or
- *  variants appear automatically as new rows. */
-type RailGroup = { key: string; label: string; order: number; items: Product[] };
-
-function groupRails(products: Product[]): RailGroup[] {
-  const rails = products.filter((p) => p.size || p.variant || p.length_m != null);
-  const groups = new Map<string, RailGroup>();
-  for (const p of rails) {
-    const variant = p.variant?.trim() || "";
-    const size = p.size?.trim() || "";
-    let key: string;
-    let label: string;
-    if (variant) { key = "v:" + variant; label = `ราง ${variant}`; }
-    else if (size) { key = "s:" + size; label = `รางเหล็ก ${size}`; }
-    else { key = "x:" + p.id; label = p.name; }
-    const g = groups.get(key) ?? { key, label, order: p.display_order ?? 9999, items: [] };
-    g.order = Math.min(g.order, p.display_order ?? 9999);
-    g.items.push(p);
-    groups.set(key, g);
-  }
-  return [...groups.values()].sort((a, b) => a.order - b.order);
-}
-
+ *  Each rail type is its own row, grouped by railGroups (variant → size):
+ *  "ราง 1\"", "ราง Gi 1\"", "ราง ดำ 3m" … Within a row we show ONE card per
+ *  length that actually exists, length-sorted, so there are no empty matrix
+ *  cells. New sizes/variants appear automatically as new rows. */
 export function StatusMatrix({ products, compact }: { products: Product[]; compact?: boolean }) {
-  const groups = groupRails(products);
+  const groups = railGroups(products);
   const w = compact ? 96 : 118;
-
-  const lenSort = (a: Product, b: Product) =>
-    (a.length_m ?? 1e9) - (b.length_m ?? 1e9) ||
-    (a.size ?? "").localeCompare(b.size ?? "") ||
-    (a.display_order ?? 0) - (b.display_order ?? 0);
 
   if (groups.length === 0) {
     return <div style={{ padding: 20, textAlign: "center", color: "var(--ink-4)", fontSize: 13.5 }}>ยังไม่มีข้อมูลราง</div>;
@@ -135,37 +109,29 @@ export function StatusMatrix({ products, compact }: { products: Product[]; compa
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: compact ? 14 : 20 }}>
-      {groups.map((g) => {
-        const isVariant = g.key.startsWith("v:");
-        const mixedSize = new Set(g.items.map((p) => p.size ?? "")).size > 1;
-        const showSize = isVariant || mixedSize;
-        return (
-          <div key={g.key}>
-            <div style={{ fontSize: compact ? 13 : 14.5, fontWeight: 700, color: "var(--ink)", marginBottom: 9 }}>{g.label}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-              {g.items.slice().sort(lenSort).map((p) => {
-                const st = stockStatus(p);
-                const bg = { green: "var(--green-soft)", amber: "var(--amber-soft)", red: "var(--red-soft)" }[st];
-                const fg = { green: "var(--green-ink)", amber: "var(--amber-ink)", red: "var(--red-ink)" }[st];
-                const parts: string[] = [];
-                if (showSize && p.size) parts.push(p.size);
-                parts.push(p.length || "—");
-                return (
-                  <div
-                    key={p.id}
-                    title={`${p.sku} · ${p.name}`}
-                    style={{ width: w, background: bg, borderRadius: 12, padding: compact ? "9px 6px" : "12px 10px", textAlign: "center", border: `1px solid ${st === "red" ? "var(--red)" : "transparent"}` }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 700, color: fg, opacity: 0.85, marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{parts.join(" · ")}</div>
-                    <div className="tnum" style={{ fontSize: compact ? 19 : 25, fontWeight: 700, color: fg, lineHeight: 1 }}>{p.stock}</div>
-                    <div style={{ fontSize: 10.5, color: fg, opacity: 0.72, marginTop: 3 }}>ขั้นต่ำ {p.min_stock}</div>
-                  </div>
-                );
-              })}
-            </div>
+      {groups.map((g) => (
+        <div key={g.key}>
+          <div style={{ fontSize: compact ? 13 : 14.5, fontWeight: 700, color: "var(--ink)", marginBottom: 9 }}>{g.label}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {g.items.map((p) => {
+              const st = stockStatus(p);
+              const bg = { green: "var(--green-soft)", amber: "var(--amber-soft)", red: "var(--red-soft)" }[st];
+              const fg = { green: "var(--green-ink)", amber: "var(--amber-ink)", red: "var(--red-ink)" }[st];
+              return (
+                <div
+                  key={p.id}
+                  title={`${p.sku} · ${p.name}`}
+                  style={{ width: w, background: bg, borderRadius: 12, padding: compact ? "9px 6px" : "12px 10px", textAlign: "center", border: `1px solid ${st === "red" ? "var(--red)" : "transparent"}` }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: fg, opacity: 0.85, marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.length || "—"}</div>
+                  <div className="tnum" style={{ fontSize: compact ? 19 : 25, fontWeight: 700, color: fg, lineHeight: 1 }}>{p.stock}</div>
+                  <div style={{ fontSize: 10.5, color: fg, opacity: 0.72, marginTop: 3 }}>ขั้นต่ำ {p.min_stock}</div>
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { type Category, type Product, stockStatus } from "@/lib/types";
 import type { WorkerStatus } from "@/lib/queries";
 import { buildConsumption, coverLabel, inUnit, LOOKBACK_DAYS, type Movement } from "@/lib/insights";
+import { railBucket } from "@/lib/grouping";
 import { CAT_ICON, CAT_COLOR, SIZE_COLOR } from "@/lib/nav";
 import { Icon } from "@/components/icon";
 import { Btn, Panel, ScreenHead, Stat, DataTable } from "@/components/ui";
@@ -187,20 +188,30 @@ function CategoryDashboard({
   // today usage
   let pieces = 0;
   let meters = 0;
-  const bySize: Record<string, number> = {};
   const byProduct: Record<string, number> = {};
   for (const p of items) {
     const q = todayUsage[p.id] || 0;
     if (!q) continue;
     pieces += q;
     byProduct[p.id] = q;
-    if (p.length_m) {
-      meters += p.length_m * q;
-      if (p.size) bySize[p.size] = (bySize[p.size] || 0) + q;
-    }
+    if (p.length_m) meters += p.length_m * q;
   }
   const low = { red: lowList.filter((p) => stockStatus(p) === "red").length, low: lowList.length };
-  const sizes = [...new Set(items.filter((p) => p.size).map((p) => p.size!))];
+
+  // rail buckets (variant → size), shared with reports & inventory board
+  const railBuckets = (() => {
+    const m = new Map<string, { key: string; label: string; size: string | null; order: number }>();
+    items
+      .filter((p) => p.size || p.variant || p.length_m != null)
+      .forEach((p) => {
+        const b = railBucket(p.variant, p.size);
+        const e = m.get(b.key);
+        if (!e) m.set(b.key, { key: b.key, label: b.label, size: p.size ?? null, order: p.display_order });
+        else if (p.display_order < e.order) e.order = p.display_order;
+      });
+    return [...m.values()].sort((a, b) => a.order - b.order);
+  })();
+  const bucketOf = (p: Product) => railBucket(p.variant, p.size).key;
 
   // weekly trend (last 7 days, in category unit)
   const last7 = [...Array(7)].map((_, i) => {
@@ -249,15 +260,21 @@ function CategoryDashboard({
             <Stat label="SKU ใกล้หมด" value={low.low} sub={`${low.red} ต่ำกว่าขั้นต่ำ`} icon="alert" accent={low.red ? "var(--red)" : "var(--green)"} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, marginBottom: 16 }}>
-            <Panel title="การใช้ตามขนาดราง" en="Usage by rail size · pieces">
-              <MiniBars data={sizes.map((s) => ({ label: s, value: bySize[s] || 0, color: SIZE_COLOR[s] }))} />
+            <Panel title="การใช้ตามชนิดราง" en="Usage by rail type · pieces">
+              <MiniBars
+                data={railBuckets.map((b) => ({
+                  label: b.label,
+                  value: items.filter((p) => bucketOf(p) === b.key).reduce((q, p) => q + (byProduct[p.id] || 0), 0),
+                  color: SIZE_COLOR[b.size ?? ""] || color,
+                }))}
+              />
             </Panel>
-            <Panel title="เมตรที่ใช้ตามขนาด" en="Meters consumed by size">
+            <Panel title="เมตรที่ใช้ตามชนิดราง" en="Meters consumed by rail type">
               <SegBars
-                data={sizes.map((s) => ({
-                  label: `ราง ${s}`,
-                  value: items.filter((p) => p.size === s).reduce((m, p) => m + (byProduct[p.id] || 0) * (p.length_m || 0), 0),
-                  color: SIZE_COLOR[s],
+                data={railBuckets.map((b) => ({
+                  label: b.label,
+                  value: items.filter((p) => bucketOf(p) === b.key).reduce((m, p) => m + (byProduct[p.id] || 0) * (p.length_m || 0), 0),
+                  color: SIZE_COLOR[b.size ?? ""] || color,
                 }))}
               />
             </Panel>

@@ -83,6 +83,7 @@ export type ReportRow = {
   categoryId: string | null;
   lengthM: number | null;
   size: string | null;
+  variant: string | null;
   sku: string;
   name: string;
   qty: number;
@@ -94,7 +95,7 @@ type SubmissionWindowRow = {
   submission_items:
     | {
         qty: number;
-        products: { sku: string; name: string; category_id: string | null; length_m: number | null; size: string | null } | null;
+        products: { sku: string; name: string; category_id: string | null; length_m: number | null; size: string | null; variant: string | null } | null;
       }[]
     | null;
 };
@@ -103,7 +104,7 @@ type SubmissionWindowRow = {
 export async function getReportRows(supabase: SupabaseClient, days = LOOKBACK_DAYS): Promise<ReportRow[]> {
   const { data } = await supabase
     .from("daily_submissions")
-    .select("usage_date, customer_group_id, submission_items(qty, products(sku, name, category_id, length_m, size))")
+    .select("usage_date, customer_group_id, submission_items(qty, products(sku, name, category_id, length_m, size, variant))")
     .gte("usage_date", isoDaysAgo(days))
     .order("usage_date", { ascending: true });
 
@@ -118,6 +119,7 @@ export async function getReportRows(supabase: SupabaseClient, days = LOOKBACK_DA
         categoryId: it.products.category_id,
         lengthM: it.products.length_m,
         size: it.products.size,
+        variant: it.products.variant,
         sku: it.products.sku,
         name: it.products.name,
         qty: it.qty,

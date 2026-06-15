@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { type Category, type CustomerGroup, type Product, stockStatus } from "@/lib/types";
 import type { ReportRow } from "@/lib/queries";
 import { inUnit } from "@/lib/insights";
+import { railBucket, railGroups, railKey } from "@/lib/grouping";
 import { CAT_COLOR, CAT_ICON, GROUP_COLOR, SIZE_COLOR } from "@/lib/nav";
 import { Icon } from "@/components/icon";
 import { Btn, Empty, Panel, ScreenHead, Stat, DataTable } from "@/components/ui";
@@ -45,14 +46,38 @@ export function ReportsClient({
 
   if (!cat) return <Empty msg="ยังไม่มีหมวดหมู่" />;
 
-  const sizes = [...new Set(products.filter((p) => p.category_id === catId && p.size).map((p) => p.size!))];
   const lowCount = products.filter((p) => p.category_id === catId && stockStatus(p) !== "green");
+
+  // Rail buckets for this category (variant → size), ordered — the single
+  // grouping shared with the inventory board and stock entry. A row's bucket is
+  // resolved via railKey(variant, size), so models like GI form their own bar.
+  const railBuckets = (() => {
+    if (cat.viz !== "rail") return [] as { key: string; label: string; size: string | null; order: number }[];
+    const m = new Map<string, { key: string; label: string; size: string | null; order: number }>();
+    products
+      .filter((p) => p.category_id === catId && (p.size || p.variant || p.length_m != null))
+      .forEach((p) => {
+        const b = railBucket(p.variant, p.size);
+        const e = m.get(b.key);
+        if (!e) m.set(b.key, { key: b.key, label: b.label, size: p.size ?? null, order: p.display_order });
+        else if (p.display_order < e.order) e.order = p.display_order;
+      });
+    return [...m.values()].sort((a, b) => a.order - b.order);
+  })();
+  const bucketBars = (rs: ReportRow[], val: (r: ReportRow) => number) => {
+    const sum: Record<string, number> = {};
+    rs.forEach((r) => {
+      const k = railKey(r.variant, r.size);
+      sum[k] = (sum[k] || 0) + val(r);
+    });
+    return railBuckets.map((b) => ({ label: b.label, value: sum[b.key] || 0, color: SIZE_COLOR[b.size ?? ""] || color }));
+  };
 
   // --- daily ---
   const dailyRows = catRows.filter((r) => r.date === today);
   const dailyHeadline = dailyRows.reduce((s, r) => s + unitVal(r), 0);
   const dailyPieces = dailyRows.reduce((s, r) => s + r.qty, 0);
-  const dailyBySize = sizes.map((sz) => ({ label: sz, value: dailyRows.filter((r) => r.size === sz).reduce((s, r) => s + r.qty, 0), color: SIZE_COLOR[sz] }));
+  const dailyBySize = bucketBars(dailyRows, (r) => r.qty);
   const dailyByProduct = aggBy(dailyRows, (r) => r.name, unitVal).map((d) => ({ ...d, color }));
   const segDaily = customerGroups.map((g) => ({ label: g.name, value: catRows.filter((r) => r.date === today && r.group === g.id).reduce((s, r) => s + unitVal(r), 0), color: GROUP_COLOR[g.id] || "var(--accent)" }));
 
@@ -65,8 +90,8 @@ export function ReportsClient({
   });
   const weeklyTrend = week.map((date) => ({ label: new Date(date).toLocaleDateString("th-TH", { weekday: "short" }), value: catRows.filter((r) => r.date === date).reduce((s, r) => s + unitVal(r), 0), color }));
   const weekRows = catRows.filter((r) => r.date >= since7);
-  const weeklyTotal = sizes.length
-    ? sizes.map((sz) => ({ label: `ราง ${sz}`, value: weekRows.filter((r) => r.size === sz).reduce((s, r) => s + unitVal(r), 0), color: SIZE_COLOR[sz] }))
+  const weeklyTotal = railBuckets.length
+    ? bucketBars(weekRows, unitVal)
     : aggBy(weekRows, (r) => r.name, unitVal).map((d) => ({ ...d, color }));
   const segWeek = customerGroups.map((g) => ({ label: g.name_en ?? g.name, value: weekRows.filter((r) => r.group === g.id).reduce((s, r) => s + unitVal(r), 0), color: GROUP_COLOR[g.id] || "var(--accent)" }));
   const weeklySum = weeklyTrend.reduce((a, b) => a + b.value, 0);
@@ -86,7 +111,7 @@ export function ReportsClient({
 
   // rows for the currently selected period → drives the per-SKU rail breakdown
   const periodRows = tab === "daily" ? dailyRows : tab === "weekly" ? weekRows : monthRows;
-  const railProducts = products.filter((p) => p.category_id === catId && p.size);
+  const railProducts = products.filter((p) => p.category_id === catId && (p.size || p.variant || p.length_m != null));
 
   return (
     <div className="fade-up">
@@ -213,28 +238,28 @@ export function ReportsClient({
   );
 }
 
-/* per-SKU rail breakdown, grouped by size (pieces + meters), for the period. */
+/* per-SKU rail breakdown, grouped by rail type (pieces + meters), for the period. */
 function RailSkuBreakdown({ products, rows }: { products: Product[]; rows: ReportRow[] }) {
   const skuPieces: Record<string, number> = {};
   rows.forEach((r) => {
     skuPieces[r.sku] = (skuPieces[r.sku] || 0) + r.qty;
   });
-  const sizes = [...new Set(products.map((p) => p.size!).filter(Boolean))];
+  const groups = railGroups(products);
   const hasAny = Object.values(skuPieces).some((v) => v > 0);
 
   return (
-    <Panel title="การใช้ราย SKU แยกตามขนาด" en="Usage by SKU · per rail size · pieces / meters" pad={hasAny ? 8 : 0}>
+    <Panel title="การใช้ราย SKU แยกตามชนิดราง" en="Usage by SKU · per rail type · pieces / meters" pad={hasAny ? 8 : 0}>
       {!hasAny ? (
         <Empty msg="ยังไม่มีการใช้งานในช่วงนี้" />
       ) : (
-        sizes.map((size) => {
-          const items = products.filter((p) => p.size === size).sort((a, b) => (a.length_m ?? 0) - (b.length_m ?? 0));
+        groups.map((g) => {
+          const items = g.items;
           const sizePieces = items.reduce((s, p) => s + (skuPieces[p.sku] || 0), 0);
           const sizeMeters = items.reduce((s, p) => s + (skuPieces[p.sku] || 0) * (p.length_m || 0), 0);
           return (
-            <div key={size} style={{ margin: 8, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+            <div key={g.key} style={{ margin: 8, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>ราง {size}</span>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{g.label}</span>
                 <span className="tnum" style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
                   รวม {sizePieces.toLocaleString()} เส้น · {sizeMeters.toLocaleString()} ม.
                 </span>
