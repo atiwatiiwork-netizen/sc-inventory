@@ -8,7 +8,8 @@ import { ScreenHead, SearchBox, Panel } from "@/components/ui";
 export type PacItem = {
   layer: "box" | "assembly";
   sku: string;
-  name: string; // Version → Size → Groove (box) or assembly name
+  name: string; // Thai name (shown bold on top)
+  nameEn: string; // English name (shown as the secondary line)
   note: string | null;
   unit: string;
   stock: number;
@@ -50,6 +51,7 @@ export function PacClient({ items }: { items: PacItem[] }) {
       (i) =>
         i.sku.toLowerCase().includes(query) ||
         i.name.toLowerCase().includes(query) ||
+        i.nameEn.toLowerCase().includes(query) ||
         (i.note ?? "").toLowerCase().includes(query),
     );
   }, [items, q]);
@@ -95,9 +97,10 @@ export function PacClient({ items }: { items: PacItem[] }) {
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{i.name}</div>
-                  <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>
-                    {i.sku}
-                    {i.note ? <span className="en" style={{ marginLeft: 6 }}>· {i.note}</span> : null}
+                  <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>
+                    {i.nameEn && <span className="en">{i.nameEn}</span>}
+                    <span className="mono" style={{ marginLeft: i.nameEn ? 6 : 0 }}>· {i.sku}</span>
+                    {i.note ? <span style={{ marginLeft: 6 }}>· {i.note}</span> : null}
                   </div>
                 </div>
                 <span className={`pill ${s.pill}`} style={{ flex: "none" }}>
@@ -151,9 +154,10 @@ function PacDetail({ item, onClear }: { item: PacItem; onClear: () => void }) {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 19, fontWeight: 700 }}>{item.name}</div>
-            <div className="mono" style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 3 }}>
-              {item.sku}
-              {item.note ? <span className="en" style={{ marginLeft: 6 }}>· {item.note}</span> : null}
+            <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 3 }}>
+              {item.nameEn && <span className="en">{item.nameEn}</span>}
+              <span className="mono" style={{ marginLeft: item.nameEn ? 6 : 0 }}>· {item.sku}</span>
+              {item.note ? <span style={{ marginLeft: 6 }}>· {item.note}</span> : null}
             </div>
           </div>
           <span className={`pill ${s.pill}`} style={{ flex: "none", fontSize: 13, padding: "5px 12px" }}>

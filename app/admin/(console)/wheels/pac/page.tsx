@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { WheelAssembly, WheelBox, WheelLookup, WheelRaw } from "@/lib/wheels/types";
-import { rawWheelLabel } from "@/lib/wheels/sku";
+import { rawWheelLabel, rawWheelLabelTh } from "@/lib/wheels/sku";
 import { groupBoxes, flattenGroups } from "@/lib/wheels/grouping";
 import { PacClient, type PacItem } from "@/components/wheels/pac-client";
 
@@ -81,7 +81,9 @@ export default async function PacPage() {
   const lastSale = reduceLast((lastSaleTx.data ?? []) as LastRow[]);
 
   // ---- Build one PacItem per finished good ------------------------------
-  const toItem = (layer: "box" | "assembly", id: string, sku: string, name: string, note: string | null, unit: string, stock: number, minStock: number): PacItem => {
+  // `name` is the Thai name (shown bold on top); `nameEn` is the English name
+  // (shown as the secondary line). `note` is any extra display label.
+  const toItem = (layer: "box" | "assembly", id: string, sku: string, name: string, nameEn: string, note: string | null, unit: string, stock: number, minStock: number): PacItem => {
     const key = `${layer}:${id}`;
     const producedToday = todayProd.get(key) ?? 0;
     const low = stock <= minStock;
@@ -90,6 +92,7 @@ export default async function PacPage() {
       layer,
       sku,
       name,
+      nameEn,
       note,
       unit,
       stock,
@@ -106,11 +109,13 @@ export default async function PacPage() {
   const orderedBoxes = flattenGroups(groupBoxes((boxes.data ?? []) as WheelBox[], rawById, fin, siz, grv));
   const boxItems = orderedBoxes.map((b) => {
     const r = rawById.get(b.raw_id);
-    return toItem("box", b.id, b.sku, r ? rawWheelLabel(r, fin, siz, grv) : b.sku, b.name ?? null, b.unit, b.stock, b.min_stock);
+    const th = r ? rawWheelLabelTh(r, fin, siz, grv) : b.sku;
+    const en = r ? rawWheelLabel(r, fin, siz, grv) : b.sku;
+    return toItem("box", b.id, b.sku, th, en, b.name ?? null, b.unit, b.stock, b.min_stock);
   });
 
   const asmItems = ((assemblies.data ?? []) as WheelAssembly[]).map((a) =>
-    toItem("assembly", a.id, a.sku, a.name, a.name_en ?? null, a.unit, a.stock, a.min_stock),
+    toItem("assembly", a.id, a.sku, a.name, a.name_en ?? "", null, a.unit, a.stock, a.min_stock),
   );
 
   return <PacClient items={[...boxItems, ...asmItems]} />;

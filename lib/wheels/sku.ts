@@ -5,8 +5,9 @@ import type { WheelLookup, WheelRaw } from "@/lib/wheels/types";
  * ==========================================================================*/
 
 const label = (rows: WheelLookup[], id: string) => rows.find((r) => r.id === id)?.en ?? id;
+const labelTh = (rows: WheelLookup[], id: string) => rows.find((r) => r.id === id)?.th ?? id;
 
-/** Human label for a raw wheel, e.g. "Chrome 3" Round". */
+/** Human label for a raw wheel (English), e.g. "Chrome 3" Round". */
 export function rawWheelLabel(
   raw: Pick<WheelRaw, "finish" | "size" | "groove">,
   finishes: WheelLookup[],
@@ -14,6 +15,16 @@ export function rawWheelLabel(
   grooves: WheelLookup[],
 ): string {
   return `${label(finishes, raw.finish)} ${label(sizes, raw.size)} ${label(grooves, raw.groove)}`;
+}
+
+/** Human label for a raw wheel (Thai), e.g. "โครเมียม 3 นิ้ว กลม". */
+export function rawWheelLabelTh(
+  raw: Pick<WheelRaw, "finish" | "size" | "groove">,
+  finishes: WheelLookup[],
+  sizes: WheelLookup[],
+  grooves: WheelLookup[],
+): string {
+  return `${labelTh(finishes, raw.finish)} ${labelTh(sizes, raw.size)} ${labelTh(grooves, raw.groove)}`;
 }
 
 /** Auto-slug a lookup id from a label (lowercase, url-ish). */
