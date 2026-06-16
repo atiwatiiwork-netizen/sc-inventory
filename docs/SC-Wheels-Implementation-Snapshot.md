@@ -61,13 +61,28 @@ A single ledger records every movement with a signed quantity, layer, source, an
 
 ## Current worker workflows
 
-- PIN login → module switcher (SC Inventory ⇄ SC Wheels) → choose **Packing** or **Assembly**.
-- Each is a daily, review-before-confirm flow: enter finished output → review (showing the
+- PIN login → module switcher (SC Inventory ⇄ SC Wheels) → choose **Packing**, **Assembly**, or
+  **Stock Check** (the worker sees only the functions allowed for their role — see Worker roles below).
+- Packing/Assembly are daily, review-before-confirm flows: enter finished output → review (showing the
   **read-only auto-deductions** the system will make) → confirm.
 - One submission header per (worker, day); re-submitting a kind **reverses and reapplies** only that
   kind's effect (correction, not duplication).
 - **Shortage soft-block:** if a deduction would drive a layer negative, the worker is stopped and
   shown the shortage. Workers cannot override.
+- **Stock Reality Check** is now also available in the worker area (same finished-goods availability
+  list as the admin pilot, read-only).
+
+## Current worker roles & function access (RBAC)
+
+- **Scope: SC Wheels worker area only.** SC Inventory's worker daily-usage is not role-gated.
+- **One role per worker** (`workers.role_id`); existing workers default to the protected system role
+  `general` (which cannot be deleted, renamed, or deactivated).
+- **Function availability, not ERP permissions** — admins map which roles may use each SC Wheels worker
+  function (Packing / Assembly / Stock Check) via a `function × role` matrix.
+- **Default-open:** a function with **no** role mapping is usable by everyone; once roles are mapped,
+  only those roles see the function (others have the card hidden and the route redirects).
+- Roles are managed at `/admin/wheels/worker-access`; a worker's role is assigned in the existing PIN
+  page (`/admin/workers`). Access is resolved live per request (role changes need no re-login).
 
 ## Current office / admin workflows
 
@@ -104,13 +119,15 @@ A single ledger records every movement with a signed quantity, layer, source, an
 ## Current database assumptions
 
 - SC Wheels uses **separate `wheels_*` tables**; the approved SC Inventory schema is untouched.
-- Shared tables only: `workers`, `profiles` (the `role` column drives admin/office), `audit_log`.
+- Shared tables only: `workers` (gains `role_id` → `worker_roles`), `profiles` (the `role` column drives
+  admin/office), `audit_log`.
 - Lookups (`version`/`size`/`groove`) are extensible tables with a `sort` column.
 - A raw wheel is unique on `(finish, size, groove)`; per-layer balances are stored as a `stock` column.
 - All stock-changing logic lives in `SECURITY DEFINER` RPCs; admins act under RLS, workers act via the
   service role. Shortage validation and override live inside the RPC (cannot be bypassed via the API).
 - Migrations are run manually in Supabase, in order: `wheels-phase1.sql` → `wheels-phase2.sql` →
-  `wheels-phase3.sql`. Each is idempotent. Postgres functions use unique dollar-quote tags.
+  `wheels-phase3.sql` → `wheels-phase4.sql` (worker roles + function access). Each is idempotent.
+  Postgres functions use unique dollar-quote tags.
 
 ## Current UI assumptions
 
@@ -146,6 +163,11 @@ A single ledger records every movement with a signed quantity, layer, source, an
   balances + unified ledger; shortage soft-block with admin override (reason required, audited);
   role gating (admin/office); reverse-then-reapply edits; void sale.
 - **Production History** screen (date-grouped, filterable, expandable, no ids).
+- **Stock Reality Check (B2 pilot):** read-only finished-goods (packed-box) availability list,
+  searchable, in admin **and** the worker area.
+- **Worker Roles / Function Access (RBAC):** one role per worker; SC Wheels worker-area scope only;
+  protected system role `general`; admin roles CRUD + `function × role` matrix; **default-open**
+  (unmapped function = everyone); role assigned in the existing PIN page.
 - All of the above is deployed to production (Vercel) from `main`.
 
 ## IN PROGRESS
@@ -159,7 +181,9 @@ A single ledger records every movement with a signed quantity, layer, source, an
 - **Low-stock alerts** for wheels (`min_stock` fields exist on all layers but are unused in the UI).
 - **LINE notifications** for SC Wheels.
 - **Receiving history** and **sales history** screens (only *production* history exists today).
-- **Role-management UI** (admin vs office is currently assigned directly in the database).
+- **Office/admin role assignment UI** — the `admin` vs `office` split (`profiles.role`) is still set
+  directly in the database. (Worker roles are now managed in-app; this item is the separate office/admin role.)
+- **RBAC beyond SC Wheels** — worker role gating currently covers SC Wheels worker functions only.
 - **Non-destructive reversal/correction history** (needed before History could show Reversed/Corrected states).
 
 ## Known future extension points
