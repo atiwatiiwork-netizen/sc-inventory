@@ -6,6 +6,8 @@ import { getWorkerSession } from "@/lib/worker-session";
 import { canUseWheelsFunction } from "@/lib/wheels/worker-access";
 import type { MovementResult, Shortage } from "@/lib/wheels/types";
 import type { SaleLine } from "@/app/admin/(console)/wheels/sales/actions";
+import type { TicketDraft } from "@/lib/wheels/ticket";
+import { sendTicketLine } from "@/lib/wheels/ticket-line";
 
 export type ProdItem = { ref_id: string; qty: number };
 
@@ -104,4 +106,83 @@ export async function submitWorkerSale(input: {
 
   revalidatePath("/worker/wheels/sales");
   return { ok: true };
+}
+
+export type TicketResult = { ok: boolean; error?: string; lineSent?: boolean; lineError?: string };
+
+/**
+ * Worker-side production ticket. Permission-gated by 'wheels-production-ticket'
+ * (default-CLOSED). Stores a human-reviewed REQUEST only — it never reserves or
+ * deducts stock, creates production, or schedules anything. LINE is optional and
+ * never blocks the save.
+ */
+export async function createWorkerTicket(draft: TicketDraft, sendLine = false): Promise<TicketResult> {
+  const session = await getWorkerSession();
+  if (!session) return { ok: false, error: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return { ok: false, error: "ยังไม่ได้ตั้งค่า Supabase — ดูไฟล์ README" };
+  if (!(await canUseWheelsFunction(session.id, "wheels-production-ticket"))) {
+    return { ok: false, error: "บัญชีของคุณไม่ได้รับสิทธิ์ออกตั๋วสั่งผลิต — ติดต่อผู้ดูแล" };
+  }
+  if (!draft.product_id || !draft.sku.trim()) return { ok: false, error: "ไม่พบสินค้า" };
+
+  const supabase = createServiceClient();
+  const { error } = await supabase.from("wheels_production_tickets").insert({
+    source: draft.source,
+    product_kind: draft.product_kind,
+    product_id: draft.product_id,
+    sku: draft.sku.trim(),
+    display_name: draft.display_name.trim() || draft.sku.trim(),
+    unit: draft.unit.trim() || "หน่วย",
+    current_stock: draft.current_stock,
+    min_stock: draft.min_stock,
+    requested_qty: Math.max(0, draft.requested_qty),
+    suggested_qty: Math.max(0, draft.suggested_qty),
+    timing_kind: draft.timing_kind,
+    timing_date: draft.timing_kind === "custom" ? draft.timing_date : null,
+    timing_hours: draft.timing_kind === "within_hours" ? draft.timing_hours : null,
+    note: draft.note.trim() || null,
+    status: "open",
+    created_by: session.code,
+    updated_by: session.code,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  let lineSent: boolean | undefined;
+  let lineError: string | undefined;
+  if (sendLine) {
+    const r = await sendLineForDraft(draft, session.code);
+    lineSent = r.ok;
+    lineError = r.ok ? undefined : r.error;
+  }
+
+  revalidatePath("/worker/wheels/stock-check");
+  revalidatePath("/admin/wheels/tickets");
+  return { ok: true, lineSent, lineError };
+}
+
+/** Standalone LINE alert from the Stock Ready Check (no ticket). Permission-gated. */
+export async function notifyWorkerStockLine(draft: TicketDraft): Promise<{ ok: boolean; error?: string }> {
+  const session = await getWorkerSession();
+  if (!session) return { ok: false, error: "เซสชันหมดอายุ" };
+  if (!(await canUseWheelsFunction(session.id, "wheels-production-ticket"))) {
+    return { ok: false, error: "บัญชีของคุณไม่ได้รับสิทธิ์ส่งแจ้งเตือน — ติดต่อผู้ดูแล" };
+  }
+  return sendLineForDraft(draft, session.code);
+}
+
+function sendLineForDraft(draft: TicketDraft, by: string) {
+  return sendTicketLine({
+    displayName: draft.display_name,
+    sku: draft.sku,
+    currentStock: draft.current_stock,
+    unit: draft.unit,
+    requestedQty: draft.requested_qty,
+    suggestedQty: draft.suggested_qty,
+    ticketDate: new Date().toISOString().slice(0, 10),
+    timingKind: draft.timing_kind,
+    timingDate: draft.timing_date,
+    timingHours: draft.timing_hours,
+    note: draft.note,
+    by,
+  });
 }

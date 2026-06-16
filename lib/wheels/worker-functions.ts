@@ -22,6 +22,12 @@ export type WheelsWorkerFunction = {
    * that must be DENIED unless a role is explicitly mapped.
    */
   defaultClosed?: boolean;
+  /**
+   * Whether this function appears as a card on the worker home. Set `false` for
+   * pure permission flags (e.g. "may raise a production ticket") that gate an
+   * action inside another screen rather than being a destination of their own.
+   */
+  menu?: boolean;
 };
 
 export const WHEELS_WORKER_FUNCTIONS: WheelsWorkerFunction[] = [
@@ -67,6 +73,18 @@ export const WHEELS_WORKER_FUNCTIONS: WheelsWorkerFunction[] = [
     icon: "store",
     desc: "ดูรายการขายที่บันทึกไว้ และเพิ่มรายการขายใหม่ (เฉพาะผู้ที่ได้รับสิทธิ์)",
     defaultClosed: true,
+  },
+  {
+    // Permission flag only (no card): may a worker raise a production ticket /
+    // send a LINE alert from the Stock Ready Check? Default-DENY.
+    key: "wheels-production-ticket",
+    th: "ออกตั๋วสั่งผลิต",
+    en: "Raise production ticket",
+    href: "/worker/wheels/stock-check",
+    icon: "bolt",
+    desc: "สิทธิ์ออกตั๋วสั่งผลิต/ส่ง LINE จากหน้าเช็คสต็อก (เฉพาะผู้ที่ได้รับสิทธิ์)",
+    defaultClosed: true,
+    menu: false,
   },
 ];
 

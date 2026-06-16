@@ -8,7 +8,7 @@ import { Icon } from "@/components/icon";
 export default async function WorkerWheelsHome() {
   const session = (await getWorkerSession())!; // layout guarantees non-null
   const access = await getWheelsAccess(session.id);
-  const fns = WHEELS_WORKER_FUNCTIONS.filter((f) => access[f.key]);
+  const fns = WHEELS_WORKER_FUNCTIONS.filter((f) => f.menu !== false && access[f.key]);
 
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", padding: "20px 18px 32px" }}>
