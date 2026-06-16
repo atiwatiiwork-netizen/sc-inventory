@@ -9,7 +9,20 @@ import type { IconName } from "@/components/icon";
  *  control, not ERP-style permissions.
  * ==========================================================================*/
 
-export type WheelsWorkerFunction = { key: string; th: string; en: string; href: string; icon: IconName; desc: string };
+export type WheelsWorkerFunction = {
+  key: string;
+  th: string;
+  en: string;
+  href: string;
+  icon: IconName;
+  desc: string;
+  /**
+   * Default-OPEN (the model default): a function with no role mapping is allowed
+   * for everyone. Set `defaultClosed` for sensitive functions (e.g. sales entry)
+   * that must be DENIED unless a role is explicitly mapped.
+   */
+  defaultClosed?: boolean;
+};
 
 export const WHEELS_WORKER_FUNCTIONS: WheelsWorkerFunction[] = [
   {
@@ -35,6 +48,25 @@ export const WHEELS_WORKER_FUNCTIONS: WheelsWorkerFunction[] = [
     href: "/worker/wheels/stock-check",
     icon: "grid",
     desc: "ดูสต็อกสินค้าสำเร็จรูป (กล่องบรรจุ) ที่มีอยู่จริงตอนนี้",
+  },
+  {
+    // Read-only on the worker side (passive visibility). Default-open.
+    key: "wheels-work-plan",
+    th: "แผนงานโรงงาน",
+    en: "Work Plan",
+    href: "/worker/wheels/work-plan",
+    icon: "calendar",
+    desc: "ดูแผนงานวันนี้และพรุ่งนี้ของโรงงาน (ดูอย่างเดียว)",
+  },
+  {
+    // Sales entry is sensitive — DENIED unless the owner maps a role to it.
+    key: "wheels-sales",
+    th: "บันทึกการขาย",
+    en: "Sales Entry",
+    href: "/worker/wheels/sales",
+    icon: "store",
+    desc: "ดูรายการขายที่บันทึกไว้ และเพิ่มรายการขายใหม่ (เฉพาะผู้ที่ได้รับสิทธิ์)",
+    defaultClosed: true,
   },
 ];
 

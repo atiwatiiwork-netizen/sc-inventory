@@ -98,12 +98,30 @@ export function WorkerAccessClient({
               </thead>
               <tbody>
                 {functions.map((f) => {
-                  const openToAll = fnRoleCount(f.key) === 0;
+                  const noMapping = fnRoleCount(f.key) === 0;
+                  // Default-closed functions are denied to everyone until a role is ticked.
+                  const statusText = f.defaultClosed
+                    ? noMapping
+                      ? "ปิดสำหรับทุกคน — ติ๊กเพื่ออนุญาต"
+                      : "อนุญาตเฉพาะบทบาทที่ติ๊ก"
+                    : noMapping
+                      ? "ใช้ได้ทุกคน"
+                      : "จำกัดเฉพาะบทบาทที่ติ๊ก";
+                  const statusColor = f.defaultClosed
+                    ? noMapping
+                      ? "var(--red-ink)"
+                      : "var(--ink-4)"
+                    : noMapping
+                      ? "var(--green-ink)"
+                      : "var(--ink-4)";
                   return (
                     <tr key={f.key} style={{ borderBottom: "1px solid var(--surface-3)" }}>
                       <td style={{ padding: "11px 14px" }}>
-                        <div style={{ fontWeight: 600 }}>{f.th} <span className="en" style={{ fontSize: 11 }}>{f.en}</span></div>
-                        <div style={{ fontSize: 11, color: openToAll ? "var(--green-ink)" : "var(--ink-4)" }}>{openToAll ? "ใช้ได้ทุกคน" : "จำกัดเฉพาะบทบาทที่ติ๊ก"}</div>
+                        <div style={{ fontWeight: 600 }}>
+                          {f.th} <span className="en" style={{ fontSize: 11 }}>{f.en}</span>
+                          {f.defaultClosed && <span className="pill amber" style={{ marginLeft: 6 }}>ต้องอนุญาต</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: statusColor }}>{statusText}</div>
                       </td>
                       {activeRoles.map((r) => {
                         const on = checked.has(`${f.key}|${r.id}`);

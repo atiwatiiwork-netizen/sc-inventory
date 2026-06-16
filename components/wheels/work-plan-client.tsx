@@ -39,6 +39,7 @@ export function WorkPlanClient({
   lowStock,
   today,
   tomorrow,
+  readOnly = false,
 }: {
   items: WorkPlanItem[];
   products: PlanProduct[];
@@ -46,11 +47,14 @@ export function WorkPlanClient({
   lowStock: LowStockSize[];
   today: string;
   tomorrow: string;
+  /** Worker-side passive view: hides all add/edit/status controls. */
+  readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState<Editing>(null);
   const [defaultDate, setDefaultDate] = useState(today);
   const [picker, setPicker] = useState(false);
   const router = useRouter();
+  const canManage = !readOnly;
 
   const lowStockCount = lowStock.reduce((s, sz) => s + sz.grooves.reduce((g, gr) => g + gr.items.length, 0), 0);
 
@@ -68,7 +72,7 @@ export function WorkPlanClient({
         th="แผนงานโรงงาน"
         en="Work Plan · งานที่โรงงานควรโฟกัส"
         right={
-          products.length > 0 ? (
+          canManage && products.length > 0 ? (
             <div style={{ display: "flex", gap: 8 }}>
               <Btn kind="default" icon="alert" size="sm" onClick={() => setPicker(true)}>
                 เลือกจากสต็อกต่ำ{lowStockCount > 0 ? ` (${lowStockCount})` : ""}
@@ -81,11 +85,12 @@ export function WorkPlanClient({
         }
       />
       <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginBottom: 16 }}>
-        เจ้าของ/แอดมินบันทึกว่าจะให้โรงงานโฟกัสอะไรวันนี้และพรุ่งนี้ · ออฟฟิศ คลัง และโรงงานเห็นแผนเดียวกัน
-        (ดูอย่างเดียว · ไม่กระทบสต็อกหรือการผลิต)
+        {readOnly
+          ? "ดูแผนงานวันนี้และพรุ่งนี้ของโรงงาน · ดูอย่างเดียว (ผู้ดูแลเป็นผู้กำหนดแผน)"
+          : "เจ้าของ/แอดมินบันทึกว่าจะให้โรงงานโฟกัสอะไรวันนี้และพรุ่งนี้ · ออฟฟิศ คลัง และโรงงานเห็นแผนเดียวกัน (ดูอย่างเดียว · ไม่กระทบสต็อกหรือการผลิต)"}
       </div>
 
-      {products.length === 0 && (
+      {canManage && products.length === 0 && (
         <div style={{ padding: "12px 14px", borderRadius: 10, background: "var(--surface-2)", color: "var(--ink-3)", fontSize: 13 }}>
           ต้องมีกล่องบรรจุหรือสินค้าประกอบอย่างน้อย 1 รายการก่อน จึงจะสร้างแผนงานได้
         </div>
@@ -99,6 +104,7 @@ export function WorkPlanClient({
         contextById={contextById}
         onAdd={() => openNew(today)}
         onEdit={setEditing}
+        canManage={canManage}
         canAdd={products.length > 0}
       />
       <div style={{ height: 18 }} />
@@ -110,10 +116,11 @@ export function WorkPlanClient({
         contextById={contextById}
         onAdd={() => openNew(tomorrow)}
         onEdit={setEditing}
+        canManage={canManage}
         canAdd={products.length > 0}
       />
 
-      {editing && (
+      {canManage && editing && (
         <PlanModal
           editing={editing}
           products={products}
@@ -128,7 +135,7 @@ export function WorkPlanClient({
         />
       )}
 
-      {picker && (
+      {canManage && picker && (
         <LowStockPicker
           lowStock={lowStock}
           today={today}
@@ -152,6 +159,7 @@ function PlanSection({
   contextById,
   onAdd,
   onEdit,
+  canManage,
   canAdd,
 }: {
   label: string;
@@ -161,6 +169,7 @@ function PlanSection({
   contextById: Record<string, SkuContext>;
   onAdd: () => void;
   onEdit: (i: WorkPlanItem) => void;
+  canManage: boolean;
   canAdd: boolean;
 }) {
   return (
@@ -168,7 +177,7 @@ function PlanSection({
       title={label}
       en={`${en} · ${date}`}
       right={
-        canAdd ? (
+        canManage && canAdd ? (
           <button
             onClick={onAdd}
             className="focusable"
@@ -184,14 +193,14 @@ function PlanSection({
         <div style={{ padding: 24, textAlign: "center", color: "var(--ink-4)", fontSize: 13.5 }}>ยังไม่มีแผนงาน</div>
       ) : (
         items.map((it, idx) => (
-          <PlanRow key={it.id} item={it} context={contextById[it.product_id] ?? null} last={idx === items.length - 1} onEdit={() => onEdit(it)} />
+          <PlanRow key={it.id} item={it} context={contextById[it.product_id] ?? null} last={idx === items.length - 1} canManage={canManage} onEdit={() => onEdit(it)} />
         ))
       )}
     </Panel>
   );
 }
 
-function PlanRow({ item, context, last, onEdit }: { item: WorkPlanItem; context: SkuContext | null; last: boolean; onEdit: () => void }) {
+function PlanRow({ item, context, last, canManage, onEdit }: { item: WorkPlanItem; context: SkuContext | null; last: boolean; canManage: boolean; onEdit: () => void }) {
   const [pending, start] = useTransition();
   const router = useRouter();
   const meta = STATUS_META[item.status];
@@ -236,18 +245,20 @@ function PlanRow({ item, context, last, onEdit }: { item: WorkPlanItem; context:
 
           {item.note ? <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 6 }}>📝 {item.note}</div> : null}
 
-          {/* Quick status actions (admin/owner) — no automatic status changes. */}
-          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-            {item.status === "planned" && (
-              <QuickBtn label="เริ่มทำ" icon="bolt" onClick={() => setStatus("in_progress")} disabled={pending} />
-            )}
-            {(item.status === "planned" || item.status === "in_progress") && (
-              <QuickBtn label="เสร็จ" icon="check" onClick={() => setStatus("done")} disabled={pending} />
-            )}
-            {!cancelled && <QuickBtn label="ยกเลิก" icon="x" onClick={() => setStatus("cancelled")} disabled={pending} danger />}
-            {cancelled && <QuickBtn label="เปิดอีกครั้ง" icon="download" onClick={() => setStatus("planned")} disabled={pending} />}
-            <QuickBtn label="แก้ไข" icon="edit" onClick={onEdit} disabled={pending} />
-          </div>
+          {/* Quick status actions (admin/owner) — hidden in read-only worker view. */}
+          {canManage && (
+            <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+              {item.status === "planned" && (
+                <QuickBtn label="เริ่มทำ" icon="bolt" onClick={() => setStatus("in_progress")} disabled={pending} />
+              )}
+              {(item.status === "planned" || item.status === "in_progress") && (
+                <QuickBtn label="เสร็จ" icon="check" onClick={() => setStatus("done")} disabled={pending} />
+              )}
+              {!cancelled && <QuickBtn label="ยกเลิก" icon="x" onClick={() => setStatus("cancelled")} disabled={pending} danger />}
+              {cancelled && <QuickBtn label="เปิดอีกครั้ง" icon="download" onClick={() => setStatus("planned")} disabled={pending} />}
+              <QuickBtn label="แก้ไข" icon="edit" onClick={onEdit} disabled={pending} />
+            </div>
+          )}
         </div>
         <span className={`pill ${meta.pill}`} style={{ flex: "none" }}>{meta.th}</span>
       </div>

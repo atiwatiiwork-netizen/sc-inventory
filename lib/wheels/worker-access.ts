@@ -27,7 +27,11 @@ export async function getWheelsAccess(workerId: string): Promise<Record<string, 
   const out: Record<string, boolean> = {};
   for (const f of WHEELS_WORKER_FUNCTIONS) {
     const roles = rolesByFn.get(f.key);
-    out[f.key] = !roles || roles.size === 0 || (roleId !== null && roles.has(roleId));
+    const hasMapping = !!roles && roles.size > 0;
+    const mappedToMe = hasMapping && roleId !== null && roles!.has(roleId);
+    // Default-closed functions require an explicit role mapping; default-open
+    // functions are allowed when unmapped (the original model behaviour).
+    out[f.key] = f.defaultClosed ? mappedToMe : !hasMapping || mappedToMe;
   }
   return out;
 }

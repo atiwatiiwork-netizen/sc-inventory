@@ -31,6 +31,9 @@ export function SalesClient({
   finishes,
   sizes,
   grooves,
+  onRecord,
+  showHead = true,
+  onSaved,
 }: {
   mode: "standard" | "raw";
   sellables: Sellable[];
@@ -39,8 +42,15 @@ export function SalesClient({
   finishes: WheelLookup[];
   sizes: WheelLookup[];
   grooves: WheelLookup[];
+  /** Override the commit action (worker path passes its RBAC-gated server action). Defaults to admin recordSale. */
+  onRecord?: typeof recordSale;
+  /** Hide the built-in screen heading (when a wrapper provides its own). */
+  showHead?: boolean;
+  /** Notified after a successful commit (e.g. to return to a list view). */
+  onSaved?: () => void;
 }) {
   const router = useRouter();
+  const record = onRecord ?? recordSale;
   const isRaw = mode === "raw";
   const [date, setDate] = useState(today);
   const [customer, setCustomer] = useState("");
@@ -94,11 +104,12 @@ export function SalesClient({
       return;
     }
     start(async () => {
-      const res = await recordSale({ date, customer, note, lines, allowRaw: isRaw, override, reason });
+      const res = await record({ date, customer, note, lines, allowRaw: isRaw, override, reason });
       if (res.ok) {
         setDoneMsg(`บันทึกการขายเรียบร้อย · ${filled} รายการ`);
         reset();
         router.refresh();
+        onSaved?.();
       } else if (res.shortages && res.shortages.length) {
         setShortages(res.shortages);
       } else {
@@ -140,10 +151,12 @@ export function SalesClient({
 
   return (
     <div className="fade-up">
-      <ScreenHead
-        th={isRaw ? "ขายล้อดิบ (พิเศษ)" : "บันทึกการขาย"}
-        en={isRaw ? "Raw-Wheel Sale · admin exception" : "Sales · packed boxes & assemblies"}
-      />
+      {showHead && (
+        <ScreenHead
+          th={isRaw ? "ขายล้อดิบ (พิเศษ)" : "บันทึกการขาย"}
+          en={isRaw ? "Raw-Wheel Sale · admin exception" : "Sales · packed boxes & assemblies"}
+        />
+      )}
 
       {isRaw && (
         <div style={{ marginBottom: 16, padding: "12px 14px", borderRadius: 10, background: "var(--surface-2)", color: "var(--ink-2)", fontSize: 13, lineHeight: 1.5 }}>
