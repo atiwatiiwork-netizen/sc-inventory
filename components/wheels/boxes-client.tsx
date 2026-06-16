@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { WheelBox, WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import { rawWheelLabel } from "@/lib/wheels/sku";
 import { groupBoxes, flattenGroups } from "@/lib/wheels/grouping";
+import { BoxesBulkClient } from "@/components/wheels/boxes-bulk-client";
 import { Icon } from "@/components/icon";
 import { Btn, DataTable, Field, Modal, Panel, ScreenHead, SearchBox, SelectInput, TextInput, Toggle } from "@/components/ui";
 import { saveBox, deleteBox, type BoxInput } from "@/app/admin/(console)/wheels/boxes/actions";
@@ -26,6 +27,7 @@ export function BoxesClient({
 }) {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
+  const [bulk, setBulk] = useState(false);
   const router = useRouter();
 
   const rawById = useMemo(() => new Map(raw.map((r) => [r.id, r])), [raw]);
@@ -45,6 +47,19 @@ export function BoxesClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderedBoxes, q]);
 
+  if (bulk)
+    return (
+      <BoxesBulkClient
+        raw={raw}
+        boxes={boxes}
+        finishes={finishes}
+        sizes={sizes}
+        grooves={grooves}
+        onClose={() => setBulk(false)}
+        onDone={() => router.refresh()}
+      />
+    );
+
   return (
     <div className="fade-up">
       <ScreenHead
@@ -52,9 +67,14 @@ export function BoxesClient({
         en={`Packed Boxes · ${activeCount} SKU`}
         right={
           raw.length === 0 ? undefined : (
-            <Btn kind="primary" icon="plus" size="sm" onClick={() => setEditing("new")}>
-              เพิ่มกล่องบรรจุ
-            </Btn>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn kind="default" icon="grid" size="sm" onClick={() => setBulk(true)}>
+                เพิ่มหลายรายการ
+              </Btn>
+              <Btn kind="primary" icon="plus" size="sm" onClick={() => setEditing("new")}>
+                เพิ่มกล่องบรรจุ
+              </Btn>
+            </div>
           )
         }
       />

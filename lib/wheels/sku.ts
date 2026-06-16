@@ -32,3 +32,12 @@ export function suggestRawSku(finish: string, size: string, groove: string): str
   const g = groove.slice(0, 3).toUpperCase();
   return `WHL-${f}-${s}-${g}`;
 }
+
+/** Suggested packed-box SKU from a raw wheel's coordinates + units, e.g. "BOX-CHR-3-U-50". */
+export function suggestBoxSku(finish: string, size: string, groove: string, units: number): string {
+  if (!finish || !size || !groove) return "";
+  const f = finish.slice(0, 3).toUpperCase();
+  const s = size.replace(/[^a-z0-9.]/gi, "").toUpperCase();
+  const g = groove.slice(0, 3).toUpperCase();
+  return `BOX-${f}-${s}-${g}-${units || 0}`;
+}

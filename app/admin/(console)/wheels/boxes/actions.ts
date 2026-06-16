@@ -49,6 +49,40 @@ export async function saveBox(input: BoxInput): Promise<ActionResult> {
   return { ok: true };
 }
 
+export type BulkResult = { ok: boolean; created: number; skipped: { sku: string; reason: string }[]; error?: string };
+
+/**
+ * Create many packed boxes at once (catalog bulk add). Inserts row-by-row so a
+ * duplicate SKU (23505) is skipped, not fatal. No movement/stock changes.
+ */
+export async function saveBoxesBulk(inputs: BoxInput[]): Promise<BulkResult> {
+  const supabase = await createClient();
+  const rows = inputs.filter((i) => i.sku.trim() && i.raw_id && i.units_per_box > 0);
+  if (rows.length === 0) return { ok: false, created: 0, skipped: [], error: "ไม่มีรายการให้สร้าง" };
+
+  let created = 0;
+  const skipped: { sku: string; reason: string }[] = [];
+  for (const input of rows) {
+    const { error } = await supabase.from("wheels_boxes").insert({
+      sku: input.sku.trim(),
+      name: input.name.trim() || null,
+      raw_id: input.raw_id,
+      units_per_box: input.units_per_box,
+      unit: input.unit.trim() || "กล่อง",
+      min_stock: input.min_stock || 0,
+      display_order: input.display_order || 0,
+      active: input.active,
+      archived: false,
+    });
+    if (error) skipped.push({ sku: input.sku.trim(), reason: error.code === DUP ? "SKU ซ้ำ" : error.message });
+    else created += 1;
+  }
+
+  revalidatePath("/admin/wheels/boxes");
+  revalidatePath("/admin/wheels");
+  return { ok: created > 0, created, skipped };
+}
+
 /** Delete only if no BOM line references this box. */
 export async function deleteBox(id: string): Promise<ActionResult> {
   const supabase = await createClient();

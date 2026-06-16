@@ -24,6 +24,7 @@ export function RawClient({
   grooves: WheelLookup[];
 }) {
   const [q, setQ] = useState("");
+  const [vtab, setVtab] = useState<string>("all");
   const [editing, setEditing] = useState<Editing>(null);
   const [bulk, setBulk] = useState(false);
   const router = useRouter();
@@ -39,10 +40,19 @@ export function RawClient({
   const list = useMemo(() => {
     const query = q.toLowerCase();
     return orderedRaw.filter(
-      (r) => !q || r.sku.toLowerCase().includes(query) || (r.name ?? "").toLowerCase().includes(query) || labelOf(r).toLowerCase().includes(query),
+      (r) =>
+        (vtab === "all" || r.finish === vtab) &&
+        (!q || r.sku.toLowerCase().includes(query) || (r.name ?? "").toLowerCase().includes(query) || labelOf(r).toLowerCase().includes(query)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderedRaw, q]);
+  }, [orderedRaw, q, vtab]);
+
+  // count of (all, not just active) raws per version, for the tab badges
+  const versionCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of raw) m[r.finish] = (m[r.finish] ?? 0) + 1;
+    return m;
+  }, [raw]);
 
   if (bulk)
     return (
@@ -72,6 +82,32 @@ export function RawClient({
           </div>
         }
       />
+      {/* version tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap", borderBottom: "1px solid var(--border)", paddingBottom: 2 }}>
+        {[{ id: "all", label: "ทั้งหมด", n: raw.length }, ...finishes.map((f) => ({ id: f.id, label: f.en, n: versionCounts[f.id] ?? 0 }))].map((t) => {
+          const on = vtab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setVtab(t.id)}
+              className="focusable"
+              style={{
+                border: "none",
+                background: "transparent",
+                padding: "8px 12px",
+                fontSize: 13.5,
+                fontWeight: on ? 700 : 500,
+                color: on ? "var(--accent-ink)" : "var(--ink-3)",
+                borderBottom: `2px solid ${on ? "var(--accent)" : "transparent"}`,
+                marginBottom: -3,
+                cursor: "pointer",
+              }}
+            >
+              {t.label} <span className="tnum" style={{ fontSize: 11.5, color: "var(--ink-4)" }}>({t.n})</span>
+            </button>
+          );
+        })}
+      </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <SearchBox value={q} onChange={setQ} placeholder="ค้นหา SKU / ชื่อ / รุ่น ขนาด ร่อง" />
       </div>
