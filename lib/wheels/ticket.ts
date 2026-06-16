@@ -15,6 +15,10 @@ export type TimingKind = (typeof TIMING_KINDS)[number];
 
 export type TicketProductKind = "box" | "assembly";
 
+/** Factory-floor execution status (Phase 8), orthogonal to the office `status`. */
+export const WORK_STATUSES = ["waiting", "in_progress", "done"] as const;
+export type WorkStatus = (typeof WORK_STATUSES)[number];
+
 export type ProductionTicket = {
   id: string;
   ticket_date: string;
@@ -37,7 +41,62 @@ export type ProductionTicket = {
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+  // Phase 8 — worker execution lifecycle.
+  work_status: WorkStatus;
+  started_at: string | null;
+  started_by: string | null;
+  finished_at: string | null;
+  finished_by: string | null;
 };
+
+/** Worker job-board status metadata (3 states only). */
+export const WORK_STATUS_META: Record<WorkStatus, { th: string; pill: string }> = {
+  waiting: { th: "รอเริ่มงาน", pill: "blue" },
+  in_progress: { th: "กำลังทำ", pill: "amber" },
+  done: { th: "เสร็จงานแล้ว", pill: "green" },
+};
+
+/** Major product category for the job board. Derived from the existing product_kind. */
+export type ProductCategory = "wheel" | "assembly";
+export const CATEGORY_TH: Record<ProductCategory, string> = { wheel: "ลูกล้อ", assembly: "งานประกอบ / ล้อชุด" };
+export const categoryOfKind = (kind: TicketProductKind): ProductCategory => (kind === "assembly" ? "assembly" : "wheel");
+
+/**
+ * Urgency sort key for WAITING tickets — lower = more urgent. Uses ONLY the
+ * explicit requested timing (no AI, no demand prediction):
+ *   now → within xx hours (fewer first) → today → specific date (nearest first) → none.
+ */
+export function urgencyKey(t: Pick<ProductionTicket, "timing_kind" | "timing_date" | "timing_hours">): number {
+  switch (t.timing_kind) {
+    case "now":
+      return 0;
+    case "within_hours":
+      return 1_000_000 + (t.timing_hours ?? 9_999);
+    case "today":
+      return 2_000_000;
+    case "custom":
+      return t.timing_date ? 3_000_000 + Math.floor(Date.parse(`${t.timing_date}T00:00:00Z`) / 86_400_000) : 9_000_000;
+    default:
+      return 9_000_000;
+  }
+}
+
+/** Whether a waiting ticket should carry the subtle "urgent" accent (now / within hours). */
+export function isUrgent(t: Pick<ProductionTicket, "timing_kind">): boolean {
+  return t.timing_kind === "now" || t.timing_kind === "within_hours";
+}
+
+/** Human duration between two ISO timestamps, e.g. "2 ชม. 15 นาที". */
+export function formatDuration(startISO: string | null, finishISO: string | null): string | null {
+  if (!startISO || !finishISO) return null;
+  const ms = Date.parse(finishISO) - Date.parse(startISO);
+  if (!(ms >= 0)) return null;
+  const mins = Math.round(ms / 60_000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} นาที`;
+  return m === 0 ? `${h} ชม.` : `${h} ชม. ${m} นาที`;
+}
 
 /** Editable ticket payload shared by the Stock Ready Check, the admin form, and both create actions. */
 export type TicketDraft = {

@@ -75,6 +75,14 @@ export const WHEELS_WORKER_FUNCTIONS: WheelsWorkerFunction[] = [
     defaultClosed: true,
   },
   {
+    key: "wheels-job-ticket",
+    th: "ตั๋วสั่งงาน",
+    en: "Job Tickets",
+    href: "/worker/wheels/job-ticket",
+    icon: "bolt",
+    desc: "ดูงานที่ถูกสั่งเข้ามาจากออฟฟิศหรือหัวหน้างาน · เริ่มงาน/เสร็จงาน",
+  },
+  {
     // Permission flag only (no card): may a worker raise a production ticket /
     // send a LINE alert from the Stock Ready Check? Default-DENY.
     key: "wheels-production-ticket",

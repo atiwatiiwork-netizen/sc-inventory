@@ -6,8 +6,8 @@ import { getWorkerSession } from "@/lib/worker-session";
 import { canUseWheelsFunction } from "@/lib/wheels/worker-access";
 import type { MovementResult, Shortage } from "@/lib/wheels/types";
 import type { SaleLine } from "@/app/admin/(console)/wheels/sales/actions";
-import type { TicketDraft } from "@/lib/wheels/ticket";
-import { sendTicketLine } from "@/lib/wheels/ticket-line";
+import { categoryOfKind, formatDuration, type TicketDraft, type ProductionTicket } from "@/lib/wheels/ticket";
+import { sendTicketLine, sendJobLine } from "@/lib/wheels/ticket-line";
 
 export type ProdItem = { ref_id: string; qty: number };
 
@@ -185,4 +185,82 @@ function sendLineForDraft(draft: TicketDraft, by: string) {
     note: draft.note,
     by,
   });
+}
+
+/* ---- Worker Job Ticket board (Phase 8) ----------------------------------
+ * Progressing a job ticket's work_status is communication/visibility ONLY:
+ * it never deducts stock, creates production transactions, touches BOM/sales,
+ * or the Work Plan. Gated by the 'wheels-job-ticket' function.
+ * ------------------------------------------------------------------------- */
+const jobQty = (t: Pick<ProductionTicket, "suggested_qty" | "requested_qty">) => t.suggested_qty || t.requested_qty;
+
+async function loadTicketForJob(id: string) {
+  const session = await getWorkerSession();
+  if (!session) return { error: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" as const };
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return { error: "ยังไม่ได้ตั้งค่า Supabase — ดูไฟล์ README" as const };
+  if (!(await canUseWheelsFunction(session.id, "wheels-job-ticket"))) {
+    return { error: "บัญชีของคุณไม่ได้รับสิทธิ์ใช้งานตั๋วสั่งงาน — ติดต่อผู้ดูแล" as const };
+  }
+  const supabase = createServiceClient();
+  const { data } = await supabase.from("wheels_production_tickets").select("*").eq("id", id).maybeSingle();
+  if (!data) return { error: "ไม่พบตั๋ว" as const };
+  return { session, supabase, ticket: data as ProductionTicket };
+}
+
+/** Mark a job ticket "กำลังทำ": save start timestamp + actor, then (optional) LINE. */
+export async function startJob(id: string): Promise<TicketResult> {
+  const r = await loadTicketForJob(id);
+  if ("error" in r) return { ok: false, error: r.error };
+  const { session, supabase, ticket } = r;
+  if (ticket.work_status !== "waiting") return { ok: false, error: "ตั๋วนี้เริ่มงานไปแล้ว" };
+
+  const startedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("wheels_production_tickets")
+    .update({ work_status: "in_progress", started_at: startedAt, started_by: session.code, updated_by: session.code, updated_at: startedAt })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  const lr = await sendJobLine("start", {
+    displayName: ticket.display_name,
+    category: categoryOfKind(ticket.product_kind),
+    quantity: jobQty(ticket),
+    unit: ticket.unit,
+    startedAt,
+    startedBy: session.code,
+  });
+  revalidatePath("/worker/wheels/job-ticket");
+  revalidatePath("/admin/wheels/tickets");
+  return { ok: true, lineSent: lr.ok, lineError: lr.ok ? undefined : lr.error };
+}
+
+/** Mark a job ticket "เสร็จงานแล้ว": save finish timestamp + duration, then (optional) LINE. */
+export async function finishJob(id: string): Promise<TicketResult> {
+  const r = await loadTicketForJob(id);
+  if ("error" in r) return { ok: false, error: r.error };
+  const { session, supabase, ticket } = r;
+  if (ticket.work_status === "done") return { ok: false, error: "ตั๋วนี้เสร็จงานแล้ว" };
+
+  const finishedAt = new Date().toISOString();
+  const startedAt = ticket.started_at ?? finishedAt; // safety: allow finishing a not-yet-started ticket
+  const { error } = await supabase
+    .from("wheels_production_tickets")
+    .update({ work_status: "done", started_at: ticket.started_at ?? startedAt, finished_at: finishedAt, finished_by: session.code, updated_by: session.code, updated_at: finishedAt })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  const lr = await sendJobLine("finish", {
+    displayName: ticket.display_name,
+    category: categoryOfKind(ticket.product_kind),
+    quantity: jobQty(ticket),
+    unit: ticket.unit,
+    startedAt,
+    startedBy: ticket.started_by,
+    finishedAt,
+    finishedBy: session.code,
+    duration: formatDuration(startedAt, finishedAt),
+  });
+  revalidatePath("/worker/wheels/job-ticket");
+  revalidatePath("/admin/wheels/tickets");
+  return { ok: true, lineSent: lr.ok, lineError: lr.ok ? undefined : lr.error };
 }

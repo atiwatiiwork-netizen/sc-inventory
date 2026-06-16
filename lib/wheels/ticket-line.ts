@@ -2,7 +2,7 @@ import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getLineSettings } from "@/lib/settings";
 import { pushText } from "@/lib/line/client";
-import { timingLabel, type TimingKind } from "@/lib/wheels/ticket";
+import { timingLabel, CATEGORY_TH, type TimingKind, type ProductCategory } from "@/lib/wheels/ticket";
 
 export type TicketLineFields = {
   displayName: string;
@@ -52,6 +52,47 @@ export async function sendTicketLine(f: TicketLineFields): Promise<{ ok: boolean
     if (!s.enabled) return { ok: false, error: "การแจ้งเตือน LINE ถูกปิดอยู่" };
     if (!s.token || !s.recipientId) return { ok: false, error: "ยังไม่ได้ตั้งค่า LINE (token/ผู้รับ)" };
     return await pushText(s.token, s.recipientId, buildMessage(f));
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+const fmtTs = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString("th-TH", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "—";
+
+export type JobLineFields = {
+  displayName: string;
+  category: ProductCategory;
+  quantity: number;
+  unit: string;
+  startedAt: string | null;
+  startedBy: string | null;
+  finishedAt?: string | null;
+  finishedBy?: string | null;
+  duration?: string | null;
+};
+
+/**
+ * Manual job-event LINE notification (งานเริ่มแล้ว / งานเสร็จแล้ว). Fired only on a
+ * user's start/finish click — never on page load. Reuses the existing LINE infra
+ * and never blocks the status change.
+ */
+export async function sendJobLine(event: "start" | "finish", f: JobLineFields): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const s = await getLineSettings(createServiceClient());
+    if (!s.enabled || !s.token || !s.recipientId) return { ok: false, error: "LINE ยังไม่พร้อม" };
+    const lines = [
+      event === "start" ? "▶️ งานเริ่มแล้ว (SC Wheels)" : "✅ งานเสร็จแล้ว (SC Wheels)",
+      `สินค้า: ${f.displayName}`,
+      `ประเภท: ${CATEGORY_TH[f.category]}`,
+      `จำนวน: ${f.quantity.toLocaleString()} ${f.unit}`,
+      `เริ่ม: ${fmtTs(f.startedAt)}${f.startedBy ? ` · ${f.startedBy}` : ""}`,
+    ];
+    if (event === "finish") {
+      lines.push(`เสร็จ: ${fmtTs(f.finishedAt ?? null)}${f.finishedBy ? ` · ${f.finishedBy}` : ""}`);
+      if (f.duration) lines.push(`ใช้เวลา: ${f.duration}`);
+    }
+    return await pushText(s.token, s.recipientId, lines.join("\n"));
   } catch (e) {
     return { ok: false, error: String(e) };
   }
