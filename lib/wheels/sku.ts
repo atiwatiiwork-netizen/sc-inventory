@@ -16,6 +16,11 @@ export function rawWheelLabel(
   return `${label(finishes, raw.finish)} ${label(sizes, raw.size)} ${label(grooves, raw.groove)}`;
 }
 
+/** Auto-slug a lookup id from a label (lowercase, url-ish). */
+export function slugify(s: string): string {
+  return s.trim().toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 /**
  * Suggested SKU from finish × size × groove, e.g. "WHL-CHR-3-RND".
  * Editable — admins can override the suggestion in the form.

@@ -30,7 +30,12 @@ export default async function RawSalesPage() {
     label: rawWheelLabel(r, fin, siz, grv),
     unit: r.unit,
     stock: r.stock,
+    version: r.finish,
+    size: r.size,
+    groove: r.groove,
   }));
 
-  return <SalesClient mode="raw" sellables={sellables} isAdmin={isAdmin} today={today} />;
+  return (
+    <SalesClient mode="raw" sellables={sellables} isAdmin={isAdmin} today={today} finishes={fin} sizes={siz} grooves={grv} />
+  );
 }

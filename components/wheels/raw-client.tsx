@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import { suggestRawSku } from "@/lib/wheels/sku";
+import { groupRawWheels, flattenGroups } from "@/lib/wheels/grouping";
 import { Icon } from "@/components/icon";
 import { Btn, DataTable, Field, Modal, Panel, ScreenHead, SearchBox, SelectInput, TextInput, Toggle } from "@/components/ui";
 import { saveRawWheel, deleteRawWheel, type RawInput } from "@/app/admin/(console)/wheels/raw/actions";
@@ -31,13 +32,15 @@ export function RawClient({
 
   const activeCount = raw.filter((r) => r.active).length;
 
+  // Canonical Version → Size → Groove ordering (size small → large).
+  const orderedRaw = useMemo(() => flattenGroups(groupRawWheels(raw, finishes, sizes, grooves)), [raw, finishes, sizes, grooves]);
   const list = useMemo(() => {
     const query = q.toLowerCase();
-    return raw.filter(
+    return orderedRaw.filter(
       (r) => !q || r.sku.toLowerCase().includes(query) || (r.name ?? "").toLowerCase().includes(query) || labelOf(r).toLowerCase().includes(query),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raw, q]);
+  }, [orderedRaw, q]);
 
   return (
     <div className="fade-up">
@@ -51,7 +54,7 @@ export function RawClient({
         }
       />
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <SearchBox value={q} onChange={setQ} placeholder="ค้นหา SKU / ชื่อ / ผิวชุบ ขนาด ร่อง" />
+        <SearchBox value={q} onChange={setQ} placeholder="ค้นหา SKU / ชื่อ / รุ่น ขนาด ร่อง" />
       </div>
       <Panel pad={0}>
         <DataTable
@@ -205,7 +208,7 @@ function RawModal({
       }
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-        <Field label="ผิวชุบ" en="Finish">
+        <Field label="รุ่น/เวอร์ชัน" en="Version">
           <SelectInput value={finish} onChange={(e) => setFinish(e.target.value)}>
             {finishes.map((f) => (
               <option key={f.id} value={f.id}>{f.th} · {f.en}</option>

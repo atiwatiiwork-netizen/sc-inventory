@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import { rawWheelLabel } from "@/lib/wheels/sku";
+import { groupRawWheels, grooveLabel, flattenGroups } from "@/lib/wheels/grouping";
 import { Icon } from "@/components/icon";
 import { Btn, Field, Panel, ScreenHead, TextInput } from "@/components/ui";
 import { StepDots, KV } from "@/components/flow-bits";
@@ -36,18 +37,9 @@ export function ReceivingClient({
 
   const label = (r: WheelRaw) => rawWheelLabel(r, finishes, sizes, grooves);
 
-  // group raw wheels by finish for a tidy entry grid
-  const groups = useMemo(() => {
-    const m = new Map<string, { label: string; items: WheelRaw[] }>();
-    for (const r of raw) {
-      const f = finishes.find((x) => x.id === r.finish);
-      const key = r.finish;
-      const g = m.get(key) ?? { label: f ? `${f.th} · ${f.en}` : r.finish, items: [] };
-      g.items.push(r);
-      m.set(key, g);
-    }
-    return [...m.values()];
-  }, [raw, finishes]);
+  // Canonical Version → Size → Groove hierarchy (size small → large).
+  const versionGroups = useMemo(() => groupRawWheels(raw, finishes, sizes, grooves), [raw, finishes, sizes, grooves]);
+  const orderedRaw = useMemo(() => flattenGroups(versionGroups), [versionGroups]);
 
   const setOne = (id: string, v: string) =>
     setQty((q) => {
@@ -97,49 +89,59 @@ export function ReceivingClient({
     return (
       <div className="fade-up">
         <ScreenHead th="รับล้อดิบเข้า" en="Raw Receiving · from supplier" right={<StepDots active={0} labels={STEPS} />} />
-        <div style={{ maxWidth: 820 }}>
+        <div style={{ maxWidth: 860 }}>
           <div style={{ marginBottom: 14 }}>
             <Field label="วันที่รับเข้า" en="Receiving date">
               <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 200 }} />
             </Field>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {groups.map((g) => {
-              const gt = g.items.reduce((s, r) => s + (qty[r.id] || 0), 0);
+            {versionGroups.map((v) => {
+              const vTotal = v.sizes.reduce((s, sg) => s + sg.items.reduce((t, r) => t + (qty[r.id] || 0), 0), 0);
               return (
                 <Panel
-                  key={g.label}
-                  title={g.label}
-                  en="กรอกจำนวนที่รับเข้า (ลูก)"
-                  right={gt > 0 ? <span className="pill green tnum">+{gt}</span> : <span className="en" style={{ fontSize: 12 }}>{g.items.length} SKU</span>}
+                  key={v.versionId}
+                  title={v.versionLabel}
+                  en="รุ่นลูกล้อ · Version"
+                  right={vTotal > 0 ? <span className="pill green tnum">+{vTotal}</span> : undefined}
                 >
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
-                    {g.items.map((r) => (
-                      <div key={r.id}>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-2)", marginBottom: 5 }}>
-                          {sizes.find((s) => s.id === r.size)?.en ?? r.size} · {grooves.find((x) => x.id === r.groove)?.th ?? r.groove}
-                          <div className="mono" style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>
-                            {r.sku} · คงเหลือ {r.stock}
-                          </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {v.sizes.map((sg) => (
+                      <div key={sg.sizeId}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink-2)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                          <span className="pill blue">{sg.sizeLabel}</span>
+                          <span className="en" style={{ fontSize: 11, color: "var(--ink-4)" }}>Size</span>
                         </div>
-                        <input
-                          className="tnum focusable"
-                          inputMode="numeric"
-                          value={qty[r.id] ?? ""}
-                          placeholder="0"
-                          onChange={(e) => setOne(r.id, e.target.value)}
-                          style={{
-                            width: "100%",
-                            height: 52,
-                            textAlign: "center",
-                            fontSize: 20,
-                            fontWeight: 700,
-                            borderRadius: 12,
-                            border: "1px solid var(--border-2)",
-                            background: qty[r.id] ? "var(--accent-soft)" : "var(--surface-2)",
-                            color: qty[r.id] ? "var(--accent-ink)" : "var(--ink-4)",
-                          }}
-                        />
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+                          {sg.items.map((r) => (
+                            <div key={r.id}>
+                              <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-2)", marginBottom: 5 }}>
+                                {grooveLabel(grooves, r.groove)}
+                                <div className="mono" style={{ fontSize: 10, color: "var(--ink-4)", fontWeight: 400 }}>
+                                  {r.sku} · คงเหลือ {r.stock}
+                                </div>
+                              </div>
+                              <input
+                                className="tnum focusable"
+                                inputMode="numeric"
+                                value={qty[r.id] ?? ""}
+                                placeholder="0"
+                                onChange={(e) => setOne(r.id, e.target.value)}
+                                style={{
+                                  width: "100%",
+                                  height: 52,
+                                  textAlign: "center",
+                                  fontSize: 20,
+                                  fontWeight: 700,
+                                  borderRadius: 12,
+                                  border: "1px solid var(--border-2)",
+                                  background: qty[r.id] ? "var(--accent-soft)" : "var(--surface-2)",
+                                  color: qty[r.id] ? "var(--accent-ink)" : "var(--ink-4)",
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -174,7 +176,7 @@ export function ReceivingClient({
               <KV k="วันที่" en="Date" v={<span className="mono">{date}</span>} />
               <KV k="จำนวน SKU" en="Line items" v={`${filled} รายการ`} />
             </div>
-            {raw
+            {orderedRaw
               .filter((r) => qty[r.id])
               .map((r) => (
                 <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderBottom: "1px solid var(--surface-3)" }}>

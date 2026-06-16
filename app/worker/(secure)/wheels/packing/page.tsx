@@ -43,8 +43,22 @@ export default async function PackingPage() {
       unit: b.unit,
       stock: b.stock,
       deductions: [{ label: rawLabel, sku: r?.sku ?? "", perUnit: b.units_per_box, unit: r?.unit ?? "ลูก", tracked: true }],
+      version: r?.finish,
+      size: r?.size,
+      groove: r?.groove,
     };
   });
 
-  return <ProductionClient kind="pack" title="แพ็คกล่อง" outputs={outputs} existing={existing} today={today} />;
+  return (
+    <ProductionClient
+      kind="pack"
+      title="แพ็คกล่อง"
+      outputs={outputs}
+      existing={existing}
+      today={today}
+      finishes={fin}
+      sizes={siz}
+      grooves={grv}
+    />
+  );
 }

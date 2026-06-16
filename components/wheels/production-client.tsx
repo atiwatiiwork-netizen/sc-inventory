@@ -2,14 +2,26 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Shortage } from "@/lib/wheels/types";
+import type { Shortage, WheelLookup } from "@/lib/wheels/types";
+import { groupByHierarchy } from "@/lib/wheels/grouping";
 import { Icon } from "@/components/icon";
 import { Btn } from "@/components/ui";
 import { submitProduction } from "@/app/worker/(secure)/wheels/actions";
 
 /** What consuming ONE output unit deducts (preview only; the RPC is authoritative). */
 export type Deduction = { label: string; sku: string; perUnit: number; unit: string; tracked: boolean };
-export type ProdOutput = { id: string; sku: string; label: string; unit: string; stock: number; deductions: Deduction[] };
+export type ProdOutput = {
+  id: string;
+  sku: string;
+  label: string;
+  unit: string;
+  stock: number;
+  deductions: Deduction[];
+  // wheel coordinates (present for packing/boxes; absent for assembly)
+  version?: string;
+  size?: string;
+  groove?: string;
+};
 
 type Step = "entry" | "review" | "done";
 
@@ -19,12 +31,18 @@ export function ProductionClient({
   outputs,
   existing,
   today,
+  finishes = [],
+  sizes = [],
+  grooves = [],
 }: {
   kind: "pack" | "assemble";
   title: string;
   outputs: ProdOutput[];
   existing: Record<string, number>;
   today: string;
+  finishes?: WheelLookup[];
+  sizes?: WheelLookup[];
+  grooves?: WheelLookup[];
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("entry");
@@ -163,6 +181,42 @@ export function ProductionClient({
     );
 
   // entry
+  const renderRow = (o: ProdOutput) => (
+    <div key={o.id} className="card" style={{ padding: 14, display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 600 }}>{o.label}</div>
+        <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>
+          {o.sku} · คงเหลือ {o.stock} {o.unit}
+        </div>
+        {o.deductions.length > 0 && (
+          <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 3 }}>
+            ใช้: {o.deductions.map((d) => `${d.label} ${d.perUnit}${d.unit}`).join(" · ")}
+          </div>
+        )}
+      </div>
+      <input
+        className="tnum focusable"
+        inputMode="numeric"
+        value={qty[o.id] ?? ""}
+        placeholder="0"
+        onChange={(e) => setOne(o.id, e.target.value)}
+        style={{
+          width: 80,
+          height: 52,
+          textAlign: "center",
+          fontSize: 20,
+          fontWeight: 700,
+          borderRadius: 12,
+          border: "1px solid var(--border-2)",
+          background: qty[o.id] ? "var(--accent-soft)" : "var(--surface-2)",
+          color: qty[o.id] ? "var(--accent-ink)" : "var(--ink-4)",
+          flex: "none",
+        }}
+      />
+    </div>
+  );
+  const grouped = outputs.some((o) => o.version);
+
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", padding: "20px 18px 32px" }}>
       <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{title}</div>
@@ -174,43 +228,24 @@ export function ProductionClient({
         <div className="card" style={{ padding: 18, color: "var(--ink-3)", fontSize: 14 }}>
           ยังไม่มีรายการให้บันทึก — ให้ผู้ดูแลตั้งค่าแคตตาล็อกก่อน
         </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {outputs.map((o) => (
-            <div key={o.id} className="card" style={{ padding: 14, display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14.5, fontWeight: 600 }}>{o.label}</div>
-                <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-4)" }}>
-                  {o.sku} · คงเหลือ {o.stock} {o.unit}
-                </div>
-                {o.deductions.length > 0 && (
-                  <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 3 }}>
-                    ใช้: {o.deductions.map((d) => `${d.label} ${d.perUnit}${d.unit}`).join(" · ")}
+      ) : grouped ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {groupByHierarchy(outputs, (o) => ({ version: o.version ?? "", size: o.size ?? "", groove: o.groove ?? "" }), finishes, sizes, grooves).map((v) => (
+            <div key={v.versionId}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{v.versionLabel}</div>
+              {v.sizes.map((sg) => (
+                <div key={sg.sizeId} style={{ marginBottom: 8 }}>
+                  <div style={{ marginBottom: 6 }}>
+                    <span className="pill blue">{sg.sizeLabel}</span>
                   </div>
-                )}
-              </div>
-              <input
-                className="tnum focusable"
-                inputMode="numeric"
-                value={qty[o.id] ?? ""}
-                placeholder="0"
-                onChange={(e) => setOne(o.id, e.target.value)}
-                style={{
-                  width: 80,
-                  height: 52,
-                  textAlign: "center",
-                  fontSize: 20,
-                  fontWeight: 700,
-                  borderRadius: 12,
-                  border: "1px solid var(--border-2)",
-                  background: qty[o.id] ? "var(--accent-soft)" : "var(--surface-2)",
-                  color: qty[o.id] ? "var(--accent-ink)" : "var(--ink-4)",
-                  flex: "none",
-                }}
-              />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{sg.items.map(renderRow)}</div>
+                </div>
+              ))}
             </div>
           ))}
         </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{outputs.map(renderRow)}</div>
       )}
 
       <div style={{ position: "sticky", bottom: 0, marginTop: 18, paddingTop: 12, background: "linear-gradient(transparent, var(--bg) 30%)" }}>

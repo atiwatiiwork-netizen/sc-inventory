@@ -56,6 +56,7 @@ export const WHEELS_NAV: NavGroup[] = [
       { id: "wheels-raw", th: "ล้อดิบ", en: "Raw Wheels", icon: "settings", href: "/admin/wheels/raw" },
       { id: "wheels-boxes", th: "กล่องบรรจุ", en: "Packed Boxes", icon: "box", href: "/admin/wheels/boxes" },
       { id: "wheels-assemblies", th: "สินค้าประกอบ", en: "Assemblies", icon: "layers", href: "/admin/wheels/assemblies" },
+      { id: "wheels-attributes", th: "ตั้งค่าคุณสมบัติ", en: "Attributes", icon: "sliders", href: "/admin/wheels/attributes", adminOnly: true },
     ],
   },
 ];

@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { WheelBox, WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import { rawWheelLabel } from "@/lib/wheels/sku";
+import { groupBoxes, flattenGroups } from "@/lib/wheels/grouping";
 import { Icon } from "@/components/icon";
 import { Btn, DataTable, Field, Modal, Panel, ScreenHead, SearchBox, SelectInput, TextInput, Toggle } from "@/components/ui";
 import { saveBox, deleteBox, type BoxInput } from "@/app/admin/(console)/wheels/boxes/actions";
@@ -27,19 +28,22 @@ export function BoxesClient({
   const [editing, setEditing] = useState<Editing>(null);
   const router = useRouter();
 
+  const rawById = useMemo(() => new Map(raw.map((r) => [r.id, r])), [raw]);
   const rawLabel = (id: string) => {
-    const r = raw.find((x) => x.id === id);
+    const r = rawById.get(id);
     return r ? rawWheelLabel(r, finishes, sizes, grooves) : "—";
   };
   const activeCount = boxes.filter((b) => b.active).length;
 
+  // Canonical Version → Size → Groove ordering (via each box's raw wheel).
+  const orderedBoxes = useMemo(() => flattenGroups(groupBoxes(boxes, rawById, finishes, sizes, grooves)), [boxes, rawById, finishes, sizes, grooves]);
   const list = useMemo(() => {
     const query = q.toLowerCase();
-    return boxes.filter(
+    return orderedBoxes.filter(
       (b) => !q || b.sku.toLowerCase().includes(query) || (b.name ?? "").toLowerCase().includes(query) || rawLabel(b.raw_id).toLowerCase().includes(query),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boxes, q]);
+  }, [orderedBoxes, q]);
 
   return (
     <div className="fade-up">
