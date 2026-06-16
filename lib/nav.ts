@@ -48,6 +48,7 @@ export const WHEELS_NAV: NavGroup[] = [
       { id: "wheels-receiving", th: "รับล้อดิบเข้า", en: "Raw Receiving", icon: "download", href: "/admin/wheels/receiving" },
       { id: "wheels-sales", th: "บันทึกการขาย", en: "Sales", icon: "store", href: "/admin/wheels/sales" },
       { id: "wheels-raw-sales", th: "ขายล้อดิบ (พิเศษ)", en: "Raw-Wheel Sale", icon: "bolt", href: "/admin/wheels/raw-sales", adminOnly: true },
+      { id: "wheels-history", th: "ประวัติการผลิต", en: "Production History", icon: "clock", href: "/admin/wheels/history" },
     ],
   },
   {
