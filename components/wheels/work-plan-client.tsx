@@ -10,6 +10,9 @@ import { saveWorkPlanItem, setWorkPlanStatus, addWorkPlanItemsBulk, type WorkPla
 /** Passive wooden-crate context for a SKU (Phase 6). Display only. */
 export type CrateContext = { crates: number; piecesPerCrate: number; approxPieces: number };
 
+/** Passive stock + crate context for a plan row's SKU (keyed by product_id on the server). */
+export type SkuContext = { stock: number; minStock: number; shortage: number; crate: CrateContext | null };
+
 /** A pickable finished good for a plan item, with passive stock/crate context. */
 export type PlanProduct = {
   kind: WorkPlanProductKind;
@@ -32,12 +35,14 @@ type Editing = WorkPlanItem | "new" | null;
 export function WorkPlanClient({
   items,
   products,
+  contextById,
   lowStock,
   today,
   tomorrow,
 }: {
   items: WorkPlanItem[];
   products: PlanProduct[];
+  contextById: Record<string, SkuContext>;
   lowStock: LowStockSize[];
   today: string;
   tomorrow: string;
@@ -91,6 +96,7 @@ export function WorkPlanClient({
         en="Today"
         date={today}
         items={todayItems}
+        contextById={contextById}
         onAdd={() => openNew(today)}
         onEdit={setEditing}
         canAdd={products.length > 0}
@@ -101,6 +107,7 @@ export function WorkPlanClient({
         en="Tomorrow"
         date={tomorrow}
         items={tomorrowItems}
+        contextById={contextById}
         onAdd={() => openNew(tomorrow)}
         onEdit={setEditing}
         canAdd={products.length > 0}
@@ -142,6 +149,7 @@ function PlanSection({
   en,
   date,
   items,
+  contextById,
   onAdd,
   onEdit,
   canAdd,
@@ -150,6 +158,7 @@ function PlanSection({
   en: string;
   date: string;
   items: WorkPlanItem[];
+  contextById: Record<string, SkuContext>;
   onAdd: () => void;
   onEdit: (i: WorkPlanItem) => void;
   canAdd: boolean;
@@ -174,17 +183,22 @@ function PlanSection({
       {items.length === 0 ? (
         <div style={{ padding: 24, textAlign: "center", color: "var(--ink-4)", fontSize: 13.5 }}>ยังไม่มีแผนงาน</div>
       ) : (
-        items.map((it, idx) => <PlanRow key={it.id} item={it} last={idx === items.length - 1} onEdit={() => onEdit(it)} />)
+        items.map((it, idx) => (
+          <PlanRow key={it.id} item={it} context={contextById[it.product_id] ?? null} last={idx === items.length - 1} onEdit={() => onEdit(it)} />
+        ))
       )}
     </Panel>
   );
 }
 
-function PlanRow({ item, last, onEdit }: { item: WorkPlanItem; last: boolean; onEdit: () => void }) {
+function PlanRow({ item, context, last, onEdit }: { item: WorkPlanItem; context: SkuContext | null; last: boolean; onEdit: () => void }) {
   const [pending, start] = useTransition();
   const router = useRouter();
   const meta = STATUS_META[item.status];
   const cancelled = item.status === "cancelled";
+  const done = item.status === "done";
+  // F5: completed items are muted but still visible; cancelled stay visible too.
+  const muted = cancelled ? 0.5 : done ? 0.7 : 1;
 
   const setStatus = (status: WorkPlanStatus) =>
     start(async () => {
@@ -196,37 +210,66 @@ function PlanRow({ item, last, onEdit }: { item: WorkPlanItem; last: boolean; on
     <div
       style={{
         display: "flex",
-        alignItems: "flex-start",
-        gap: 12,
-        padding: "14px 16px",
+        alignItems: "stretch",
+        gap: 0,
         borderBottom: last ? "none" : "1px solid var(--surface-3)",
-        opacity: cancelled ? 0.55 : 1,
+        opacity: muted,
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, textDecoration: cancelled ? "line-through" : "none" }}>
-          {item.display_name}
-          <span className="tnum" style={{ marginLeft: 8, fontSize: 14, fontWeight: 700, color: "var(--accent)" }}>
-            {item.quantity.toLocaleString()} <span style={{ fontWeight: 500, color: "var(--ink-3)", fontSize: 12 }}>{item.unit}</span>
-          </span>
-        </div>
-        <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>{item.sku}</div>
-        {item.note ? <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 4 }}>📝 {item.note}</div> : null}
+      {/* F1: status colour stripe for quick scanning. */}
+      <div style={{ width: 4, flex: "none", background: meta.accent, borderRadius: 2, margin: "12px 0" }} />
 
-        {/* Quick status actions (admin/owner) — no automatic status changes. */}
-        <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-          {item.status === "planned" && (
-            <QuickBtn label="เริ่มทำ" icon="bolt" onClick={() => setStatus("in_progress")} disabled={pending} />
-          )}
-          {(item.status === "planned" || item.status === "in_progress") && (
-            <QuickBtn label="เสร็จ" icon="check" onClick={() => setStatus("done")} disabled={pending} />
-          )}
-          {!cancelled && <QuickBtn label="ยกเลิก" icon="x" onClick={() => setStatus("cancelled")} disabled={pending} danger />}
-          {cancelled && <QuickBtn label="เปิดอีกครั้ง" icon="download" onClick={() => setStatus("planned")} disabled={pending} />}
-          <QuickBtn label="แก้ไข" icon="edit" onClick={onEdit} disabled={pending} />
+      <div style={{ flex: 1, minWidth: 0, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* F2: Product first, then a prominent Quantity + Unit, then SKU. */}
+          <div style={{ fontSize: 15, fontWeight: 700, textDecoration: cancelled ? "line-through" : "none" }}>{item.display_name}</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+            <span className="tnum" style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1, color: cancelled ? "var(--ink-4)" : "var(--accent)" }}>
+              {item.quantity.toLocaleString()}
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-3)" }}>{item.unit}</span>
+          </div>
+          <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 4 }}>{item.sku}</div>
+
+          {/* F3 / F6: passive production context — information only. */}
+          {context && <RowContext context={context} unit={item.unit} />}
+
+          {item.note ? <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 6 }}>📝 {item.note}</div> : null}
+
+          {/* Quick status actions (admin/owner) — no automatic status changes. */}
+          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+            {item.status === "planned" && (
+              <QuickBtn label="เริ่มทำ" icon="bolt" onClick={() => setStatus("in_progress")} disabled={pending} />
+            )}
+            {(item.status === "planned" || item.status === "in_progress") && (
+              <QuickBtn label="เสร็จ" icon="check" onClick={() => setStatus("done")} disabled={pending} />
+            )}
+            {!cancelled && <QuickBtn label="ยกเลิก" icon="x" onClick={() => setStatus("cancelled")} disabled={pending} danger />}
+            {cancelled && <QuickBtn label="เปิดอีกครั้ง" icon="download" onClick={() => setStatus("planned")} disabled={pending} />}
+            <QuickBtn label="แก้ไข" icon="edit" onClick={onEdit} disabled={pending} />
+          </div>
         </div>
+        <span className={`pill ${meta.pill}`} style={{ flex: "none" }}>{meta.th}</span>
       </div>
-      <span className={`pill ${meta.pill}`} style={{ flex: "none" }}>{meta.th}</span>
+    </div>
+  );
+}
+
+/** Passive one-line context under a plan item: stock / min / shortage + crates. Display only. */
+function RowContext({ context, unit }: { context: SkuContext; unit: string }) {
+  return (
+    <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginTop: 6, display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
+      <span>
+        สต็อก <span className="tnum" style={{ fontWeight: 600, color: "var(--ink-2)" }}>{context.stock.toLocaleString()}</span> / ขั้นต่ำ {context.minStock.toLocaleString()}
+      </span>
+      {context.shortage > 0 && (
+        <span style={{ color: "var(--red-ink)", fontWeight: 600 }}>ขาด {context.shortage.toLocaleString()} {unit}</span>
+      )}
+      {context.crate && (
+        <span>
+          🪵 ลังไม้ <span className="tnum" style={{ fontWeight: 600, color: "var(--ink-2)" }}>{context.crate.crates.toLocaleString()}</span> ลัง · ~{context.crate.approxPieces.toLocaleString()} ลูก
+        </span>
+      )}
     </div>
   );
 }

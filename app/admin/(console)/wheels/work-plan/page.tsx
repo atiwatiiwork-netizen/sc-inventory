@@ -5,15 +5,16 @@ import { approxPieces } from "@/lib/wheels/crate";
 import { rawWheelLabel } from "@/lib/wheels/sku";
 import { groupBoxes, flattenGroups, grooveLabel, sizeLabel } from "@/lib/wheels/grouping";
 import type { WorkPlanItem } from "@/lib/wheels/work-plan";
-import { WorkPlanClient, type PlanProduct, type LowStockSize } from "@/components/wheels/work-plan-client";
+import { WorkPlanClient, type PlanProduct, type LowStockSize, type SkuContext } from "@/components/wheels/work-plan-client";
 
 /**
- * SC Wheels — Work Plan v1 (Phase 5) + Phase 6 passive context. Owner/admin record
- * what the factory should focus on Today / Tomorrow; everyone sees the same intent.
- * INFORMATION ONLY — never affects stock, transactions, production or sales.
+ * SC Wheels — Work Plan v1 (Phase 5) + passive context (Phase 6/7). Owner/admin
+ * record what the factory should focus on Today / Tomorrow; everyone sees the same
+ * intent. INFORMATION ONLY — never affects stock, transactions, production or sales.
  *
- * Phase 6 additions (passive visibility only, no automation):
- *   - product context (current/min stock, shortage, wooden-crate availability)
+ * Passive visibility (no automation, no recommendations):
+ *   - per-item context (current/min stock, shortage, wooden-crate availability)
+ *     shown on each plan row AND in the add/edit modal
  *   - a Low Stock SKU picker grouped Size → Groove to help build the plan
  */
 export default async function WorkPlanPage() {
@@ -25,8 +26,9 @@ export default async function WorkPlanPage() {
 
   const [items, boxes, assemblies, raw, finishes, sizes, grooves, crates] = await Promise.all([
     supabase.from("wheels_work_plan_items").select("*").in("plan_date", [today, tomorrow]).order("created_at"),
-    supabase.from("wheels_boxes").select("*").eq("active", true).eq("archived", false).order("display_order"),
-    supabase.from("wheels_assemblies").select("*").eq("active", true).eq("archived", false).order("display_order"),
+    // Not-archived (incl. inactive) so plan rows for a since-deactivated SKU still resolve context.
+    supabase.from("wheels_boxes").select("*").eq("archived", false).order("display_order"),
+    supabase.from("wheels_assemblies").select("*").eq("archived", false).order("display_order"),
     supabase.from("wheels_raw").select("*"),
     supabase.from("wheels_finishes").select("*").order("sort"),
     supabase.from("wheels_sizes").select("*").order("sort"),
@@ -41,12 +43,31 @@ export default async function WorkPlanPage() {
   const grv = (grooves.data ?? []) as WheelLookup[];
   const crateByRaw = new Map(((crates.data ?? []) as WheelCrate[]).map((c) => [c.raw_id, c]));
 
-  // Product picker (boxes in canonical order + assemblies), each with passive context.
-  const orderedBoxes = flattenGroups(groupBoxes((boxes.data ?? []) as WheelBox[], rawById, fin, siz, grv));
+  const allBoxes = (boxes.data ?? []) as WheelBox[];
+  const allAssemblies = (assemblies.data ?? []) as WheelAssembly[];
+
+  const crateFor = (rawId: string | undefined) => {
+    const c = rawId ? crateByRaw.get(rawId) : undefined;
+    return c ? { crates: c.crate_qty, piecesPerCrate: c.pieces_per_crate, approxPieces: approxPieces(c) } : null;
+  };
+  const ctxOf = (stock: number, minStock: number, crate: SkuContext["crate"]): SkuContext => ({
+    stock,
+    minStock,
+    shortage: Math.max(0, minStock - stock),
+    crate,
+  });
+
+  // Per-item context map (keyed by product_id) for the plan rows — covers every
+  // box/assembly, active or not, so completed/older rows still show context.
+  const contextById: Record<string, SkuContext> = {};
+  for (const b of allBoxes) contextById[b.id] = ctxOf(b.stock, b.min_stock, crateFor(b.raw_id));
+  for (const a of allAssemblies) contextById[a.id] = ctxOf(a.stock, a.min_stock, null);
+
+  // Product picker (active boxes in canonical order + active assemblies), with context.
+  const orderedBoxes = flattenGroups(groupBoxes(allBoxes.filter((b) => b.active), rawById, fin, siz, grv));
   const products: PlanProduct[] = [
     ...orderedBoxes.map((b) => {
       const r = rawById.get(b.raw_id);
-      const crate = r ? crateByRaw.get(r.id) : undefined;
       return {
         kind: "box" as const,
         id: b.id,
@@ -55,22 +76,24 @@ export default async function WorkPlanPage() {
         unit: b.unit,
         stock: b.stock,
         minStock: b.min_stock,
-        crate: crate ? { crates: crate.crate_qty, piecesPerCrate: crate.pieces_per_crate, approxPieces: approxPieces(crate) } : null,
+        crate: crateFor(b.raw_id),
       };
     }),
-    ...((assemblies.data ?? []) as WheelAssembly[]).map((a) => ({
-      kind: "assembly" as const,
-      id: a.id,
-      sku: a.sku,
-      name: a.name,
-      unit: a.unit,
-      stock: a.stock,
-      minStock: a.min_stock,
-      crate: null,
-    })),
+    ...allAssemblies
+      .filter((a) => a.active)
+      .map((a) => ({
+        kind: "assembly" as const,
+        id: a.id,
+        sku: a.sku,
+        name: a.name,
+        unit: a.unit,
+        stock: a.stock,
+        minStock: a.min_stock,
+        crate: null,
+      })),
   ];
 
-  // Low Stock picker: packed boxes below their minimum, grouped Size → Groove.
+  // Low Stock picker: active packed boxes below their minimum, grouped Size → Groove.
   // Passive list only — no auto-select, no suggested quantities, no ranking.
   const lowBoxes = orderedBoxes.filter((b) => b.min_stock > 0 && b.stock < b.min_stock);
   const sizeMap = new Map<string, Map<string, LowStockSize["grooves"][number]["items"]>>();
@@ -109,6 +132,7 @@ export default async function WorkPlanPage() {
     <WorkPlanClient
       items={(items.data ?? []) as WorkPlanItem[]}
       products={products}
+      contextById={contextById}
       lowStock={lowStock}
       today={today}
       tomorrow={tomorrow}

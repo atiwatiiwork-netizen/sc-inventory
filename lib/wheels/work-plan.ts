@@ -27,12 +27,15 @@ export type WorkPlanItem = {
   cancelled_at: string | null;
 };
 
-/** Display metadata for each status (Thai label, English sub, pill colour class). */
-export const STATUS_META: Record<WorkPlanStatus, { th: string; en: string; pill: string }> = {
-  planned: { th: "วางแผนไว้", en: "Planned", pill: "blue" },
-  in_progress: { th: "กำลังทำ", en: "In progress", pill: "amber" },
-  done: { th: "เสร็จแล้ว", en: "Done", pill: "green" },
-  cancelled: { th: "ยกเลิก", en: "Cancelled", pill: "grey" },
+/**
+ * Display metadata for each status: Thai label, English sub, pill colour class,
+ * and a solid `accent` CSS var used for the row status-stripe (quick scanning).
+ */
+export const STATUS_META: Record<WorkPlanStatus, { th: string; en: string; pill: string; accent: string }> = {
+  planned: { th: "วางแผนไว้", en: "Planned", pill: "blue", accent: "var(--accent)" },
+  in_progress: { th: "กำลังทำ", en: "In progress", pill: "amber", accent: "var(--amber-ink)" },
+  done: { th: "เสร็จแล้ว", en: "Done", pill: "green", accent: "var(--green-ink)" },
+  cancelled: { th: "ยกเลิก", en: "Cancelled", pill: "grey", accent: "var(--ink-4)" },
 };
 
 /**
