@@ -5,9 +5,10 @@ import { createServiceClient } from "@/lib/supabase/server";
 import type { WheelBox, WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import type { WheelCrate } from "@/lib/wheels/crate";
 import { approxPieces } from "@/lib/wheels/crate";
-import { rawWheelLabel } from "@/lib/wheels/sku";
+import { rawWheelLabel, rawWheelLabelTh } from "@/lib/wheels/sku";
 import { groupBoxes, flattenGroups } from "@/lib/wheels/grouping";
 import { isLineReady } from "@/lib/wheels/ticket-line";
+import { createWorkerTicket, notifyWorkerStockLine } from "@/app/worker/(secure)/wheels/actions";
 import { StockReadyCheckClient, type ReadyItem } from "@/components/wheels/stock-ready-check-client";
 
 /**
@@ -58,7 +59,8 @@ export default async function WorkerStockCheckPage() {
     return {
       productId: b.id,
       sku: b.sku,
-      name: r ? rawWheelLabel(r, fin, siz, grv) : b.sku,
+      name: r ? rawWheelLabelTh(r, fin, siz, grv) : b.sku,
+      nameEn: r ? rawWheelLabel(r, fin, siz, grv) : b.sku,
       note: b.name ?? null,
       unit: b.unit,
       stock: b.stock,
@@ -70,7 +72,13 @@ export default async function WorkerStockCheckPage() {
 
   return (
     <div style={{ padding: "16px 14px 32px" }}>
-      <StockReadyCheckClient items={items} canCreateTicket={canTicket} lineReady={lineReady} />
+      <StockReadyCheckClient
+        items={items}
+        canCreateTicket={canTicket}
+        lineReady={lineReady}
+        onCreateTicket={createWorkerTicket}
+        onNotifyLine={notifyWorkerStockLine}
+      />
     </div>
   );
 }

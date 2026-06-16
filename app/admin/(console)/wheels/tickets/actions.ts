@@ -65,6 +65,25 @@ export async function createTicket(draft: TicketDraft, sendLine = false): Promis
   return { ok: true, lineSent, lineError };
 }
 
+/** Standalone LINE alert from the admin Stock Ready Check (no ticket created). */
+export async function notifyStockLine(draft: TicketDraft): Promise<{ ok: boolean; error?: string }> {
+  const { by } = await getAdminActor();
+  return sendTicketLine({
+    displayName: draft.display_name,
+    sku: draft.sku,
+    currentStock: draft.current_stock,
+    unit: draft.unit,
+    requestedQty: draft.requested_qty,
+    suggestedQty: draft.suggested_qty,
+    ticketDate: new Date().toISOString().slice(0, 10),
+    timingKind: draft.timing_kind,
+    timingDate: draft.timing_date,
+    timingHours: draft.timing_hours,
+    note: draft.note,
+    by,
+  });
+}
+
 /** Manual status change (no automatic transitions). */
 export async function setTicketStatus(id: string, status: TicketStatus): Promise<TicketResult> {
   if (!TICKET_STATUSES.includes(status)) return { ok: false, error: "สถานะไม่ถูกต้อง" };

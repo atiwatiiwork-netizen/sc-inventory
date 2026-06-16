@@ -13,12 +13,11 @@ import {
   type TimingKind,
   type TicketDraft,
 } from "@/lib/wheels/ticket";
-import { createWorkerTicket, notifyWorkerStockLine } from "@/app/worker/(secure)/wheels/actions";
-
 export type ReadyItem = {
   productId: string;
   sku: string;
-  name: string;
+  name: string; // Thai name (shown bold on top)
+  nameEn: string; // English name (shown as the secondary line)
   note: string | null;
   unit: string;
   stock: number;
@@ -26,6 +25,11 @@ export type ReadyItem = {
   plannedQty: number; // Work Plan today+tomorrow (non-cancelled)
   crate: { crates: number; approxPieces: number } | null;
 };
+
+/** Server actions supplied by the page (worker- or admin-side), so the same UI
+ *  works on both with the correct identity + RBAC enforced server-side. */
+export type CreateTicketFn = (draft: TicketDraft, sendLine: boolean) => Promise<{ ok: boolean; error?: string; lineSent?: boolean; lineError?: string }>;
+export type NotifyLineFn = (draft: TicketDraft) => Promise<{ ok: boolean; error?: string }>;
 
 /**
  * Stock Ready Check — search a finished good, enter a requested quantity, and see
@@ -37,10 +41,14 @@ export function StockReadyCheckClient({
   items,
   canCreateTicket,
   lineReady,
+  onCreateTicket,
+  onNotifyLine,
 }: {
   items: ReadyItem[];
   canCreateTicket: boolean;
   lineReady: boolean;
+  onCreateTicket: CreateTicketFn;
+  onNotifyLine: NotifyLineFn;
 }) {
   const [q, setQ] = useState("");
   const [selId, setSelId] = useState<string | null>(null);
@@ -49,7 +57,7 @@ export function StockReadyCheckClient({
   const matches = useMemo(() => {
     const query = q.trim().toLowerCase();
     if (!query) return items;
-    return items.filter((i) => i.sku.toLowerCase().includes(query) || i.name.toLowerCase().includes(query) || (i.note ?? "").toLowerCase().includes(query));
+    return items.filter((i) => i.sku.toLowerCase().includes(query) || i.name.toLowerCase().includes(query) || i.nameEn.toLowerCase().includes(query) || (i.note ?? "").toLowerCase().includes(query));
   }, [items, q]);
 
   return (
@@ -64,7 +72,7 @@ export function StockReadyCheckClient({
       </div>
 
       {selected ? (
-        <CheckDetail item={selected} canCreateTicket={canCreateTicket} lineReady={lineReady} onClear={() => setSelId(null)} />
+        <CheckDetail item={selected} canCreateTicket={canCreateTicket} lineReady={lineReady} onCreateTicket={onCreateTicket} onNotifyLine={onNotifyLine} onClear={() => setSelId(null)} />
       ) : (
         <Panel pad={0}>
           {matches.map((i) => (
@@ -79,7 +87,10 @@ export function StockReadyCheckClient({
             >
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 700 }}>{i.name}</div>
-                <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>{i.sku}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>
+                  {i.nameEn && <span className="en">{i.nameEn}</span>}
+                  <span className="mono" style={{ marginLeft: i.nameEn ? 6 : 0 }}>· {i.sku}</span>
+                </div>
               </div>
               <div className="tnum" style={{ textAlign: "right", flex: "none", fontWeight: 700 }}>
                 {i.stock.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 500, color: "var(--ink-3)" }}>{i.unit}</span>
@@ -98,7 +109,7 @@ export function StockReadyCheckClient({
   );
 }
 
-function CheckDetail({ item, canCreateTicket, lineReady, onClear }: { item: ReadyItem; canCreateTicket: boolean; lineReady: boolean; onClear: () => void }) {
+function CheckDetail({ item, canCreateTicket, lineReady, onCreateTicket, onNotifyLine, onClear }: { item: ReadyItem; canCreateTicket: boolean; lineReady: boolean; onCreateTicket: CreateTicketFn; onNotifyLine: NotifyLineFn; onClear: () => void }) {
   const [qtyStr, setQtyStr] = useState("");
   const [ticketOpen, setTicketOpen] = useState(false);
   const [lineMsg, setLineMsg] = useState<string | null>(null);
@@ -130,7 +141,7 @@ function CheckDetail({ item, canCreateTicket, lineReady, onClear }: { item: Read
   const sendLine = () => {
     setLineMsg(null);
     start(async () => {
-      const r = await notifyWorkerStockLine(draft);
+      const r = await onNotifyLine(draft);
       setLineMsg(r.ok ? "ส่ง LINE แจ้งเตือนแล้ว" : r.error || "ส่ง LINE ไม่สำเร็จ");
     });
   };
@@ -143,8 +154,10 @@ function CheckDetail({ item, canCreateTicket, lineReady, onClear }: { item: Read
 
       <Panel pad={18} style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>{item.name}</div>
-        <div className="mono" style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>
-          {item.sku}{item.note ? <span className="en" style={{ marginLeft: 6 }}>· {item.note}</span> : null}
+        <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 2 }}>
+          {item.nameEn && <span className="en">{item.nameEn}</span>}
+          <span className="mono" style={{ marginLeft: item.nameEn ? 6 : 0 }}>· {item.sku}</span>
+          {item.note ? <span style={{ marginLeft: 6 }}>· {item.note}</span> : null}
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -186,6 +199,7 @@ function CheckDetail({ item, canCreateTicket, lineReady, onClear }: { item: Read
         <TicketModal
           draft={draft}
           lineReady={lineReady}
+          onCreateTicket={onCreateTicket}
           onClose={() => setTicketOpen(false)}
           onSaved={() => {
             setTicketOpen(false);
@@ -220,7 +234,7 @@ function Row({ label, value, accent }: { label: string; value: string; accent?: 
   );
 }
 
-function TicketModal({ draft, lineReady, onClose, onSaved }: { draft: TicketDraft; lineReady: boolean; onClose: () => void; onSaved: () => void }) {
+function TicketModal({ draft, lineReady, onCreateTicket, onClose, onSaved }: { draft: TicketDraft; lineReady: boolean; onCreateTicket: CreateTicketFn; onClose: () => void; onSaved: () => void }) {
   const [suggested, setSuggested] = useState(String(draft.suggested_qty));
   const [timing, setTiming] = useState<TimingKind>("now");
   const [timingDate, setTimingDate] = useState("");
@@ -243,7 +257,7 @@ function TicketModal({ draft, lineReady, onClose, onSaved }: { draft: TicketDraf
       note,
     };
     start(async () => {
-      const res = await createWorkerTicket(full, sendLine && lineReady);
+      const res = await onCreateTicket(full, sendLine && lineReady);
       if (!res.ok) return setError(res.error || "บันทึกไม่สำเร็จ");
       if (sendLine && res.lineSent === false) {
         setWarn(`บันทึกตั๋วแล้ว แต่ส่ง LINE ไม่สำเร็จ: ${res.lineError ?? ""}`);
