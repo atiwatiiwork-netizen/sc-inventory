@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { getWorkerSession } from "@/lib/worker-session";
+import { canUseWheelsFunction } from "@/lib/wheels/worker-access";
 import { createServiceClient } from "@/lib/supabase/server";
 import type { WheelAssembly, WheelBomLine, WheelBox, WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import { rawWheelLabel } from "@/lib/wheels/sku";
@@ -6,6 +8,7 @@ import { ProductionClient, type Deduction, type ProdOutput } from "@/components/
 
 export default async function AssemblyPage() {
   const session = (await getWorkerSession())!;
+  if (!(await canUseWheelsFunction(session.id, "wheels-assembly"))) redirect("/worker/wheels");
   const supabase = createServiceClient();
   const today = new Date().toISOString().slice(0, 10);
 

@@ -1,0 +1,41 @@
+import type { IconName } from "@/components/icon";
+
+/* ============================================================================
+ *  SC Wheels — worker function registry.
+ *
+ *  `key` values are IMMUTABLE internal identifiers (referenced by
+ *  wheels_function_roles.function_key). They define which SC Wheels worker-area
+ *  functions exist and can be role-gated. This is "function availability"
+ *  control, not ERP-style permissions.
+ * ==========================================================================*/
+
+export type WheelsWorkerFunction = { key: string; th: string; en: string; href: string; icon: IconName; desc: string };
+
+export const WHEELS_WORKER_FUNCTIONS: WheelsWorkerFunction[] = [
+  {
+    key: "wheels-packing",
+    th: "แพ็คกล่อง",
+    en: "Packing",
+    href: "/worker/wheels/packing",
+    icon: "box",
+    desc: "บันทึกจำนวนกล่องที่แพ็คเสร็จ · ระบบหักล้อดิบให้อัตโนมัติ",
+  },
+  {
+    key: "wheels-assembly",
+    th: "ประกอบสินค้า",
+    en: "Assembly",
+    href: "/worker/wheels/assembly",
+    icon: "layers",
+    desc: "บันทึกจำนวนสินค้าที่ประกอบเสร็จ · ระบบหักวัตถุดิบตาม BOM ให้อัตโนมัติ",
+  },
+  {
+    key: "wheels-stock-check",
+    th: "เช็คสต็อกพร้อมขาย",
+    en: "Stock Check",
+    href: "/worker/wheels/stock-check",
+    icon: "grid",
+    desc: "ดูสต็อกสินค้าสำเร็จรูป (กล่องบรรจุ) ที่มีอยู่จริงตอนนี้",
+  },
+];
+
+export const wheelsFunctionByKey = (key: string) => WHEELS_WORKER_FUNCTIONS.find((f) => f.key === key);

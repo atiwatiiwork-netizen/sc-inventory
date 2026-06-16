@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { getWorkerSession } from "@/lib/worker-session";
+import { canUseWheelsFunction } from "@/lib/wheels/worker-access";
 import { createServiceClient } from "@/lib/supabase/server";
 import type { WheelBox, WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import { rawWheelLabel } from "@/lib/wheels/sku";
@@ -6,6 +8,7 @@ import { ProductionClient, type ProdOutput } from "@/components/wheels/productio
 
 export default async function PackingPage() {
   const session = (await getWorkerSession())!;
+  if (!(await canUseWheelsFunction(session.id, "wheels-packing"))) redirect("/worker/wheels");
   const supabase = createServiceClient();
   const today = new Date().toISOString().slice(0, 10);
 

@@ -61,6 +61,7 @@ export const WHEELS_NAV: NavGroup[] = [
       { id: "wheels-boxes", th: "กล่องบรรจุ", en: "Packed Boxes", icon: "box", href: "/admin/wheels/boxes" },
       { id: "wheels-assemblies", th: "สินค้าประกอบ", en: "Assemblies", icon: "layers", href: "/admin/wheels/assemblies" },
       { id: "wheels-attributes", th: "ตั้งค่าคุณสมบัติ", en: "Attributes", icon: "sliders", href: "/admin/wheels/attributes", adminOnly: true },
+      { id: "wheels-worker-access", th: "สิทธิ์พนักงาน", en: "Worker Access", icon: "key", href: "/admin/wheels/worker-access", adminOnly: true },
     ],
   },
 ];

@@ -4,6 +4,9 @@
 /** Extensible attribute lookup (finish / size / groove). */
 export type WheelLookup = { id: string; th: string; en: string; sort: number };
 
+/** A worker role (one per worker). `is_system` marks the protected default ('general'). */
+export type WorkerRole = { id: string; name: string; name_en: string | null; sort: number; active: boolean; is_system: boolean };
+
 /** A raw wheel SKU — uniquely defined by finish × size × groove. */
 export type WheelRaw = {
   id: string;

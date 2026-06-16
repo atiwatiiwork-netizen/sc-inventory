@@ -3,16 +3,18 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Worker } from "@/lib/types";
+import type { WorkerRole } from "@/lib/wheels/types";
 import { Icon } from "@/components/icon";
-import { Btn, DataTable, Field, Modal, Panel, ScreenHead, TextInput, Toggle } from "@/components/ui";
+import { Btn, DataTable, Field, Modal, Panel, ScreenHead, SelectInput, TextInput, Toggle } from "@/components/ui";
 import { saveWorker, setWorkerActive } from "@/app/admin/(console)/workers/actions";
 
 type Editing = Worker | "new" | null;
 
-export function WorkersClient({ workers }: { workers: Worker[] }) {
+export function WorkersClient({ workers, roles }: { workers: Worker[]; roles: WorkerRole[] }) {
   const [editing, setEditing] = useState<Editing>(null);
   const [reveal, setReveal] = useState<Record<string, boolean>>({});
   const router = useRouter();
+  const roleName = (id: string | null) => roles.find((r) => r.id === id)?.name ?? (id ?? "—");
 
   return (
     <div className="fade-up">
@@ -30,6 +32,7 @@ export function WorkersClient({ workers }: { workers: Worker[] }) {
           cols={[
             { label: "รหัส", w: 120 },
             { label: "ชื่อแสดง" },
+            { label: "บทบาท", w: 120 },
             { label: "PIN", w: 140 },
             { label: "สถานะ", w: 110 },
             { label: "", w: 70 },
@@ -39,6 +42,7 @@ export function WorkersClient({ workers }: { workers: Worker[] }) {
             <tr key={w.id} style={{ borderBottom: "1px solid var(--surface-3)" }}>
               <td style={{ padding: "13px 14px" }}><span className="mono" style={{ fontSize: 13 }}>{w.code}</span></td>
               <td style={{ padding: "13px 14px", fontWeight: 600 }}>{w.name} <span className="en" style={{ fontSize: 11 }}>{w.name_en}</span></td>
+              <td style={{ padding: "13px 14px" }}><span className="pill blue">{roleName(w.role_id)}</span></td>
               <td style={{ padding: "13px 14px" }}>
                 <button
                   onClick={() => setReveal((r) => ({ ...r, [w.id]: !r[w.id] }))}
@@ -57,7 +61,7 @@ export function WorkersClient({ workers }: { workers: Worker[] }) {
             </tr>
           ))}
           {workers.length === 0 && (
-            <tr><td colSpan={5} style={{ padding: 28, textAlign: "center", color: "var(--ink-4)", fontSize: 14 }}>ยังไม่มีพนักงาน</td></tr>
+            <tr><td colSpan={6} style={{ padding: 28, textAlign: "center", color: "var(--ink-4)", fontSize: 14 }}>ยังไม่มีพนักงาน</td></tr>
           )}
         </DataTable>
       </Panel>
@@ -66,7 +70,7 @@ export function WorkersClient({ workers }: { workers: Worker[] }) {
       </div>
 
       {editing && (
-        <WorkerModal editing={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); router.refresh(); }} />
+        <WorkerModal editing={editing} roles={roles} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); router.refresh(); }} />
       )}
     </div>
   );
@@ -82,12 +86,13 @@ function ActiveToggle({ id, on }: { id: string; on: boolean }) {
   );
 }
 
-function WorkerModal({ editing, onClose, onSaved }: { editing: Worker | "new"; onClose: () => void; onSaved: () => void }) {
+function WorkerModal({ editing, roles, onClose, onSaved }: { editing: Worker | "new"; roles: WorkerRole[]; onClose: () => void; onSaved: () => void }) {
   const isNew = editing === "new";
   const w = isNew ? null : editing;
   const [code, setCode] = useState(w?.code ?? "");
   const [name, setName] = useState(w?.name ?? "");
   const [pin, setPin] = useState(w?.pin ?? "");
+  const [roleId, setRoleId] = useState(w?.role_id ?? "general");
   const [active, setActive] = useState(isNew ? true : w!.active);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -95,7 +100,7 @@ function WorkerModal({ editing, onClose, onSaved }: { editing: Worker | "new"; o
   const save = () => {
     setError(null);
     start(async () => {
-      const res = await saveWorker({ id: isNew ? undefined : w!.id, code, name, pin, active });
+      const res = await saveWorker({ id: isNew ? undefined : w!.id, code, name, pin, active, role_id: roleId });
       if (res.ok) onSaved();
       else setError(res.error || "บันทึกไม่สำเร็จ");
     });
@@ -123,6 +128,13 @@ function WorkerModal({ editing, onClose, onSaved }: { editing: Worker | "new"; o
       </div>
       <Field label="ชื่อแสดง" en="Display name">
         <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="ชื่อพนักงาน" />
+      </Field>
+      <Field label="บทบาท" en="Role · controls SC Wheels function access">
+        <SelectInput value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+          {roles.map((r) => (
+            <option key={r.id} value={r.id}>{r.name}{r.name_en ? ` · ${r.name_en}` : ""}</option>
+          ))}
+        </SelectInput>
       </Field>
       <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, background: "var(--surface-2)" }}>
         <span style={{ fontSize: 13.5, fontWeight: 600 }}>เปิดใช้งาน <span className="en">Active</span></span>

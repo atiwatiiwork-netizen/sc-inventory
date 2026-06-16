@@ -51,6 +51,7 @@ export type Worker = {
   name_en: string | null;
   pin: string;
   active: boolean;
+  role_id: string | null; // worker role (SC Wheels function access); default 'general'
 };
 
 export type ReportUnit = { id: string; th: string; sort: number };
