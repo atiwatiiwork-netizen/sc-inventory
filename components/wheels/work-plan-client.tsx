@@ -5,27 +5,49 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Btn, Field, Modal, Panel, ScreenHead, SelectInput, TextInput } from "@/components/ui";
 import { STATUS_META, type WorkPlanItem, type WorkPlanProductKind, type WorkPlanStatus } from "@/lib/wheels/work-plan";
-import { saveWorkPlanItem, setWorkPlanStatus, type WorkPlanInput } from "@/app/admin/(console)/wheels/work-plan/actions";
+import { saveWorkPlanItem, setWorkPlanStatus, addWorkPlanItemsBulk, type WorkPlanInput, type BulkPlanLine } from "@/app/admin/(console)/wheels/work-plan/actions";
 
-/** A pickable finished good for a plan item. */
-export type PlanProduct = { kind: WorkPlanProductKind; id: string; sku: string; name: string; unit: string };
+/** Passive wooden-crate context for a SKU (Phase 6). Display only. */
+export type CrateContext = { crates: number; piecesPerCrate: number; approxPieces: number };
+
+/** A pickable finished good for a plan item, with passive stock/crate context. */
+export type PlanProduct = {
+  kind: WorkPlanProductKind;
+  id: string;
+  sku: string;
+  name: string;
+  unit: string;
+  stock: number;
+  minStock: number;
+  crate: CrateContext | null;
+};
+
+/** A low-stock box for the picker (grouped Size → Groove on the server). */
+export type LowStockItem = { product_id: string; sku: string; name: string; unit: string; stock: number; minStock: number; shortage: number };
+export type LowStockGroove = { grooveId: string; grooveLabel: string; items: LowStockItem[] };
+export type LowStockSize = { sizeId: string; sizeLabel: string; grooves: LowStockGroove[] };
 
 type Editing = WorkPlanItem | "new" | null;
 
 export function WorkPlanClient({
   items,
   products,
+  lowStock,
   today,
   tomorrow,
 }: {
   items: WorkPlanItem[];
   products: PlanProduct[];
+  lowStock: LowStockSize[];
   today: string;
   tomorrow: string;
 }) {
   const [editing, setEditing] = useState<Editing>(null);
   const [defaultDate, setDefaultDate] = useState(today);
+  const [picker, setPicker] = useState(false);
   const router = useRouter();
+
+  const lowStockCount = lowStock.reduce((s, sz) => s + sz.grooves.reduce((g, gr) => g + gr.items.length, 0), 0);
 
   const todayItems = useMemo(() => items.filter((i) => i.plan_date === today), [items, today]);
   const tomorrowItems = useMemo(() => items.filter((i) => i.plan_date === tomorrow), [items, tomorrow]);
@@ -42,9 +64,14 @@ export function WorkPlanClient({
         en="Work Plan · งานที่โรงงานควรโฟกัส"
         right={
           products.length > 0 ? (
-            <Btn kind="primary" icon="plus" size="sm" onClick={() => openNew(today)}>
-              เพิ่มแผนงาน
-            </Btn>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn kind="default" icon="alert" size="sm" onClick={() => setPicker(true)}>
+                เลือกจากสต็อกต่ำ{lowStockCount > 0 ? ` (${lowStockCount})` : ""}
+              </Btn>
+              <Btn kind="primary" icon="plus" size="sm" onClick={() => openNew(today)}>
+                เพิ่มแผนงาน
+              </Btn>
+            </div>
           ) : undefined
         }
       />
@@ -89,6 +116,19 @@ export function WorkPlanClient({
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {picker && (
+        <LowStockPicker
+          lowStock={lowStock}
+          today={today}
+          tomorrow={tomorrow}
+          onClose={() => setPicker(false)}
+          onSaved={() => {
+            setPicker(false);
             router.refresh();
           }}
         />
@@ -320,6 +360,8 @@ function PlanModal({
         </SelectInput>
       </Field>
 
+      {product && <ProductContext product={product} />}
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <Field label="จำนวน" en="Quantity">
           <TextInput inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, ""))} placeholder="20" />
@@ -343,6 +385,185 @@ function PlanModal({
             ))}
           </SelectInput>
         </Field>
+      )}
+
+      {error && (
+        <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "var(--red-soft)", color: "var(--red-ink)", fontSize: 13, fontWeight: 600 }}>
+          {error}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Passive context for the selected SKU (Phase 6). Shows reality — current/min
+ * stock, current shortage, and wooden-crate availability — so the human can
+ * decide. NO recommendations, NO suggested quantity, NO blocking.
+ */
+function ProductContext({ product }: { product: PlanProduct }) {
+  const shortage = Math.max(0, product.minStock - product.stock);
+  const low = product.minStock > 0 && product.stock < product.minStock;
+  return (
+    <div style={{ margin: "0 0 14px", padding: "12px 14px", borderRadius: 10, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ink-3)", marginBottom: 8 }}>
+        ข้อมูลประกอบการตัดสินใจ <span className="en" style={{ fontSize: 10 }}>· for reference only</span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px", fontSize: 13 }}>
+        <Ctx label="สต็อกปัจจุบัน" value={`${product.stock.toLocaleString()} ${product.unit}`} />
+        <Ctx label="สต็อกขั้นต่ำ" value={`${product.minStock.toLocaleString()} ${product.unit}`} />
+        <Ctx label="ขาดอยู่" value={shortage > 0 ? `${shortage.toLocaleString()} ${product.unit}` : "—"} accent={low ? "var(--red-ink)" : undefined} />
+      </div>
+      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--border-2)", display: "flex", flexWrap: "wrap", gap: "8px 18px", fontSize: 13 }}>
+        {product.kind === "box" && product.crate ? (
+          <>
+            <Ctx label="ลังไม้คงเหลือ" value={`${product.crate.crates.toLocaleString()} ลัง`} />
+            <Ctx label="≈ ล้อดิบในลัง" value={`~${product.crate.approxPieces.toLocaleString()} ลูก`} />
+            <span style={{ fontSize: 11.5, color: "var(--ink-4)" }}>(ลังละ ~{product.crate.piecesPerCrate.toLocaleString()} ลูก)</span>
+          </>
+        ) : (
+          <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
+            {product.kind === "box" ? "ยังไม่มีข้อมูลลังไม้ของล้อดิบนี้" : "สินค้าประกอบ — ไม่มีข้อมูลลังไม้"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Ctx({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <span>
+      <span style={{ color: "var(--ink-3)" }}>{label}: </span>
+      <span className="tnum" style={{ fontWeight: 700, color: accent ?? "var(--ink)" }}>{value}</span>
+    </span>
+  );
+}
+
+/**
+ * Feature 1 — Low Stock SKU picker. PASSIVE list of boxes below minimum, grouped
+ * Size → Groove. The human checks which SKUs to add and types each quantity; the
+ * system NEVER auto-selects, ranks, suggests, or generates quantities.
+ */
+function LowStockPicker({
+  lowStock,
+  today,
+  tomorrow,
+  onClose,
+  onSaved,
+}: {
+  lowStock: LowStockSize[];
+  today: string;
+  tomorrow: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [planDate, setPlanDate] = useState(today);
+  const [qtyById, setQtyById] = useState<Record<string, string>>({});
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  const flat = lowStock.flatMap((s) => s.grooves.flatMap((g) => g.items));
+  const byId = new Map(flat.map((i) => [i.product_id, i]));
+  const selectedCount = Object.values(checked).filter(Boolean).length;
+
+  const toggle = (id: string) => setChecked((c) => ({ ...c, [id]: !c[id] }));
+  const setQty = (id: string, v: string) => setQtyById((q) => ({ ...q, [id]: v.replace(/\D/g, "") }));
+
+  const add = () => {
+    setError(null);
+    const lines: BulkPlanLine[] = Object.keys(checked)
+      .filter((id) => checked[id])
+      .map((id) => {
+        const it = byId.get(id)!;
+        return {
+          product_kind: "box" as const,
+          product_id: it.product_id,
+          sku: it.sku,
+          display_name: it.name,
+          quantity: Number(qtyById[id]) || 0,
+          unit: it.unit,
+        };
+      });
+    if (lines.length === 0) return setError("กรุณาเลือกอย่างน้อย 1 รายการ");
+    if (lines.some((l) => !(l.quantity > 0))) return setError("กรุณากรอกจำนวนของรายการที่เลือกให้ครบ");
+    start(async () => {
+      const res = await addWorkPlanItemsBulk(planDate, lines);
+      if (res.ok) onSaved();
+      else setError(res.error || "เพิ่มไม่สำเร็จ");
+    });
+  };
+
+  return (
+    <Modal
+      title="เลือกจากสต็อกต่ำ"
+      en="Low stock · pick SKUs to plan"
+      onClose={onClose}
+      width={580}
+      footer={
+        <>
+          <Btn kind="ghost" onClick={onClose} disabled={pending}>ยกเลิก</Btn>
+          <Btn kind="primary" icon="plus" onClick={add} disabled={pending || selectedCount === 0}>
+            {pending ? "กำลังเพิ่ม…" : `เพิ่มเข้าแผน${selectedCount > 0 ? ` (${selectedCount})` : ""}`}
+          </Btn>
+        </>
+      }
+    >
+      <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginBottom: 12 }}>
+        รายการที่ต่ำกว่าสต็อกขั้นต่ำ · เลือกเองและกรอกจำนวนเอง (ระบบไม่แนะนำหรือคำนวณจำนวนให้)
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <Field label="ใส่เข้าแผนวันที่" en="Plan date">
+          <SelectInput value={planDate} onChange={(e) => setPlanDate(e.target.value)}>
+            <option value={today}>วันนี้ · Today ({today})</option>
+            <option value={tomorrow}>พรุ่งนี้ · Tomorrow ({tomorrow})</option>
+          </SelectInput>
+        </Field>
+      </div>
+
+      {flat.length === 0 ? (
+        <div style={{ padding: 24, textAlign: "center", color: "var(--ink-4)", fontSize: 14 }}>
+          ไม่มีสินค้าที่ต่ำกว่าสต็อกขั้นต่ำ 🎉
+        </div>
+      ) : (
+        lowStock.map((sz) => (
+          <div key={sz.sizeId} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--accent)", marginBottom: 4 }}>ขนาด {sz.sizeLabel}</div>
+            {sz.grooves.map((gr) => (
+              <div key={gr.grooveId} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", padding: "2px 0" }}>ร่อง {gr.grooveLabel}</div>
+                {gr.items.map((it) => {
+                  const on = !!checked[it.product_id];
+                  return (
+                    <div
+                      key={it.product_id}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 9, background: on ? "var(--accent-soft)" : "transparent", border: "1px solid var(--surface-3)", marginBottom: 5 }}
+                    >
+                      <input type="checkbox" checked={on} onChange={() => toggle(it.product_id)} style={{ width: 17, height: 17, flex: "none" }} />
+                      <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => toggle(it.product_id)}>
+                        <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.name}</div>
+                        <div style={{ fontSize: 11, color: "var(--ink-4)" }}>
+                          มี {it.stock.toLocaleString()} / ขั้นต่ำ {it.minStock.toLocaleString()} ·{" "}
+                          <span style={{ color: "var(--red-ink)", fontWeight: 600 }}>ขาด {it.shortage.toLocaleString()} {it.unit}</span>
+                        </div>
+                      </div>
+                      <TextInput
+                        inputMode="numeric"
+                        value={qtyById[it.product_id] ?? ""}
+                        onChange={(e) => setQty(it.product_id, e.target.value)}
+                        placeholder="จำนวน"
+                        disabled={!on}
+                        style={{ width: 90, flex: "none", opacity: on ? 1 : 0.5 }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        ))
       )}
 
       {error && (

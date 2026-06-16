@@ -45,6 +45,7 @@ export const WHEELS_NAV: NavGroup[] = [
       { id: "wheels-stock-check", th: "เช็คสต็อกพร้อมขาย", en: "Stock Check", icon: "grid", href: "/admin/wheels/stock-check" },
       { id: "wheels-pac", th: "เช็คสินค้าให้ลูกค้า", en: "Availability Check", icon: "search", href: "/admin/wheels/pac" },
       { id: "wheels-work-plan", th: "แผนงานโรงงาน", en: "Work Plan", icon: "calendar", href: "/admin/wheels/work-plan" },
+      { id: "wheels-crates", th: "ลังไม้ (สต็อก)", en: "Wooden Crates", icon: "truck", href: "/admin/wheels/crates" },
     ],
   },
   {
