@@ -86,6 +86,25 @@ export function isUrgent(t: Pick<ProductionTicket, "timing_kind">): boolean {
   return t.timing_kind === "now" || t.timing_kind === "within_hours";
 }
 
+/**
+ * Urgency badge derived ONLY from the explicit requested timing (no AI, no
+ * stock inference). `urgent` drives the subtle left-border accent.
+ */
+export function urgencyBadge(t: Pick<ProductionTicket, "timing_kind" | "timing_date" | "timing_hours">): { label: string; pill: string; urgent: boolean } {
+  switch (t.timing_kind) {
+    case "now":
+      return { label: "ด่วนมาก", pill: "red", urgent: true };
+    case "within_hours":
+      return { label: `ด่วนใน ${t.timing_hours ?? "?"} ชม.`, pill: "red", urgent: true };
+    case "today":
+      return { label: "ด่วนวันนี้", pill: "amber", urgent: false };
+    case "custom":
+      return t.timing_date ? { label: `กำหนด ${t.timing_date}`, pill: "blue", urgent: false } : { label: "ไม่ระบุเวลา", pill: "grey", urgent: false };
+    default:
+      return { label: "ไม่ระบุเวลา", pill: "grey", urgent: false };
+  }
+}
+
 /** Human duration between two ISO timestamps, e.g. "2 ชม. 15 นาที". */
 export function formatDuration(startISO: string | null, finishISO: string | null): string | null {
   if (!startISO || !finishISO) return null;

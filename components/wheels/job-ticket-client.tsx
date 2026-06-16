@@ -9,9 +9,11 @@ import {
   CATEGORY_TH,
   urgencyKey,
   isUrgent,
+  urgencyBadge,
   formatDuration,
   timingLabel,
   type ProductCategory,
+  type TicketSource,
   type TimingKind,
   type WorkStatus,
 } from "@/lib/wheels/ticket";
@@ -24,6 +26,9 @@ export type JobCard = {
   category: ProductCategory;
   quantity: number;
   unit: string;
+  source: TicketSource;
+  requestedQty: number;
+  stockAtCreation: number;
   createdAt: string;
   createdBy: string | null;
   timingKind: TimingKind;
@@ -36,6 +41,9 @@ export type JobCard = {
   finishedBy: string | null;
   note: string | null;
 };
+
+type StatusFilter = "all" | WorkStatus;
+type CatFilter = "all" | ProductCategory;
 
 const BKK = "Asia/Bangkok";
 const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: BKK });
@@ -51,6 +59,9 @@ const jobTiming = (c: JobCard) => ({ timing_kind: c.timingKind, timing_date: c.t
 type Group = { key: string; status: WorkStatus; name: string; unit: string; total: number; tickets: JobCard[] };
 
 export function JobTicketClient({ cards, lineReady }: { cards: JobCard[]; lineReady: boolean }) {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [catFilter, setCatFilter] = useState<CatFilter>("all");
+
   const grouped = useMemo(() => {
     const byCat = new Map<ProductCategory, Map<WorkStatus, Group[]>>();
     for (const cat of CATEGORY_ORDER) byCat.set(cat, new Map(STATUS_ORDER.map((s) => [s, [] as Group[]])));
@@ -76,6 +87,11 @@ export function JobTicketClient({ cards, lineReady }: { cards: JobCard[]; lineRe
     return byCat;
   }, [cards]);
 
+  const anyShown = CATEGORY_ORDER.filter((cat) => catFilter === "all" || cat === catFilter).some((cat) => {
+    const m = grouped.get(cat)!;
+    return STATUS_ORDER.filter((st) => statusFilter === "all" || st === statusFilter).some((st) => m.get(st)!.length > 0);
+  });
+
   return (
     <div className="fade-up" style={{ maxWidth: 680, margin: "0 auto" }}>
       <ScreenHead th="ตั๋วสั่งงาน" en="Job Tickets · งานที่สั่งเข้าโรงงาน" />
@@ -86,18 +102,38 @@ export function JobTicketClient({ cards, lineReady }: { cards: JobCard[]; lineRe
         <div style={{ fontSize: 11.5, color: "var(--ink-4)", marginBottom: 14 }}>* ยังไม่ได้ตั้งค่า LINE — การแจ้งเตือนจะถูกข้าม (อัปเดตสถานะได้ตามปกติ)</div>
       )}
 
+      {/* Filters — display only; never change ticket data/status. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+        <FilterRow
+          label="สถานะ"
+          options={[["all", "ทั้งหมด"], ["waiting", WORK_STATUS_META.waiting.th], ["in_progress", WORK_STATUS_META.in_progress.th], ["done", WORK_STATUS_META.done.th]]}
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v as StatusFilter)}
+        />
+        <FilterRow
+          label="ประเภท"
+          options={[["all", "ทั้งหมด"], ["wheel", CATEGORY_TH.wheel], ["assembly", CATEGORY_TH.assembly]]}
+          value={catFilter}
+          onChange={(v) => setCatFilter(v as CatFilter)}
+        />
+      </div>
+
       {cards.length === 0 && (
         <div className="card" style={{ padding: 22, color: "var(--ink-3)", fontSize: 14, textAlign: "center" }}>ยังไม่มีงานที่ถูกสั่งเข้ามา</div>
       )}
+      {cards.length > 0 && !anyShown && (
+        <div className="card" style={{ padding: 22, color: "var(--ink-4)", fontSize: 14, textAlign: "center" }}>ไม่พบงานตามตัวกรอง</div>
+      )}
 
-      {CATEGORY_ORDER.map((cat) => {
+      {CATEGORY_ORDER.filter((cat) => catFilter === "all" || cat === catFilter).map((cat) => {
         const m = grouped.get(cat)!;
-        const total = STATUS_ORDER.reduce((s, st) => s + m.get(st)!.length, 0);
+        const shownStatuses = STATUS_ORDER.filter((st) => statusFilter === "all" || st === statusFilter);
+        const total = shownStatuses.reduce((s, st) => s + m.get(st)!.length, 0);
         if (total === 0) return null;
         return (
           <section key={cat} style={{ marginBottom: 26 }}>
             <h2 style={{ fontSize: 18, fontWeight: 800, margin: "8px 0 12px", letterSpacing: "-.01em" }}>{CATEGORY_TH[cat]}</h2>
-            {STATUS_ORDER.map((st) => {
+            {shownStatuses.map((st) => {
               const groups = m.get(st)!;
               if (groups.length === 0) return null;
               return (
@@ -161,7 +197,10 @@ function JobCardView({ card }: { card: JobCard }) {
           <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.2 }}>{card.name}</div>
           <Qty value={card.quantity} unit={card.unit} />
         </div>
-        <span className={`pill ${WORK_STATUS_META[card.workStatus].pill}`} style={{ flex: "none" }}>{WORK_STATUS_META[card.workStatus].th}</span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flex: "none" }}>
+          <span className={`pill ${WORK_STATUS_META[card.workStatus].pill}`}>{WORK_STATUS_META[card.workStatus].th}</span>
+          {card.workStatus === "waiting" && <UrgencyBadge card={card} />}
+        </div>
       </div>
 
       <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 10, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
@@ -171,6 +210,8 @@ function JobCardView({ card }: { card: JobCard }) {
         {card.workStatus === "in_progress" && card.startedAt && <span>เริ่ม: {whenLabel(card.startedAt)}</span>}
         {card.workStatus === "done" && duration && <span>ใช้เวลา: {duration}</span>}
       </div>
+
+      <SourceContext card={card} />
 
       {card.note ? <div style={{ fontSize: 12, color: "var(--ink-4)", marginTop: 6, fontStyle: "italic" }}>📝 {card.note}</div> : null}
 
@@ -194,6 +235,8 @@ function GroupedCardView({ group }: { group: Group }) {
   const ids = group.tickets.map((t) => t.id);
   const urgent = st === "waiting" && group.tickets.some((t) => isUrgent(jobTiming(t)));
   const n = group.tickets.length;
+  // Group urgency badge = most urgent member (lowest urgencyKey).
+  const mostUrgent = group.tickets.reduce((a, b) => (urgencyKey(jobTiming(b)) < urgencyKey(jobTiming(a)) ? b : a));
 
   const runBatch = (fn: (ids: string[]) => Promise<{ ok: boolean; error?: string }>) => {
     setErr(null);
@@ -217,6 +260,7 @@ function GroupedCardView({ group }: { group: Group }) {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flex: "none" }}>
           <span className={`pill ${WORK_STATUS_META[st].pill}`}>{WORK_STATUS_META[st].th}</span>
           <span className="pill grey">รวม {n} ตั๋ว</span>
+          {st === "waiting" && <UrgencyBadge card={mostUrgent} />}
         </div>
       </div>
 
@@ -228,6 +272,9 @@ function GroupedCardView({ group }: { group: Group }) {
             <span style={{ color: "var(--ink-4)" }}>· สร้าง {whenLabel(t.createdAt)}</span>
             {st === "waiting" && <span style={{ color: isUrgent(jobTiming(t)) ? "var(--amber-ink)" : "var(--ink-4)", fontWeight: isUrgent(jobTiming(t)) ? 700 : 400 }}>· {timingLabel(t.timingKind, t.timingDate, t.timingHours)}</span>}
             {t.createdBy && <span style={{ color: "var(--ink-4)" }}>· โดย {t.createdBy}</span>}
+            {t.source === "stock_check" && t.requestedQty > 0 && (
+              <span style={{ color: "var(--ink-4)" }}>· ขอ {t.requestedQty.toLocaleString()} · สต๊อก {t.stockAtCreation.toLocaleString()}{t.requestedQty - t.stockAtCreation > 0 ? ` · ขาด ${(t.requestedQty - t.stockAtCreation).toLocaleString()}` : ""}</span>
+            )}
             {st === "done" && t.finishedAt && <span style={{ color: "var(--ink-4)" }}>· เสร็จ {whenLabel(t.finishedAt)}</span>}
             {expanded && st !== "done" && <PerTicketAction card={t} onDone={() => router.refresh()} />}
           </div>
@@ -276,6 +323,53 @@ function PerTicketAction({ card, onDone }: { card: JobCard; onDone: () => void }
     <button onClick={run} disabled={pending} className="focusable" style={{ marginLeft: "auto", border: "1px solid var(--border-2)", background: "var(--surface)", color: "var(--accent-ink)", borderRadius: 7, padding: "3px 9px", fontSize: 11.5, fontWeight: 600, cursor: pending ? "default" : "pointer" }}>
       {card.workStatus === "waiting" ? "เริ่มเฉพาะตั๋วนี้" : "เสร็จเฉพาะตั๋วนี้"}
     </button>
+  );
+}
+
+function FilterRow({ label, options, value, onChange }: { label: string; options: [string, string][]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 12, color: "var(--ink-4)", fontWeight: 600, minWidth: 44 }}>{label}</span>
+      {options.map(([val, lbl]) => (
+        <button
+          key={val}
+          onClick={() => onChange(val)}
+          className="focusable"
+          style={{
+            padding: "5px 12px",
+            borderRadius: 999,
+            border: "1px solid " + (value === val ? "var(--accent)" : "var(--border-2)"),
+            background: value === val ? "var(--accent)" : "var(--surface)",
+            color: value === val ? "#fff" : "var(--ink-2)",
+            fontSize: 12.5,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {lbl}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Urgency badge from the explicit requested timing (display only). */
+function UrgencyBadge({ card }: { card: JobCard }) {
+  const b = urgencyBadge(jobTiming(card));
+  return <span className={`pill ${b.pill}`} style={{ fontSize: 11 }}>{b.label}</span>;
+}
+
+/** Snapshot source context for a stock-check ticket (hidden for manual/older tickets). */
+function SourceContext({ card }: { card: JobCard }) {
+  if (card.source !== "stock_check" || card.requestedQty <= 0) return null;
+  const shortage = card.requestedQty - card.stockAtCreation;
+  return (
+    <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 9, background: "var(--surface-2)", fontSize: 11.5, color: "var(--ink-3)", display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
+      <span>มาจาก: เช็คสต๊อกพร้อมขาย</span>
+      <span>ขอขาย: <b className="tnum">{card.requestedQty.toLocaleString()}</b> {card.unit}</span>
+      <span>สต๊อกตอนออกตั๋ว: <b className="tnum">{card.stockAtCreation.toLocaleString()}</b> {card.unit}</span>
+      {shortage > 0 && <span style={{ color: "var(--red-ink)", fontWeight: 600 }}>ขาด: {shortage.toLocaleString()} {card.unit}</span>}
+    </div>
   );
 }
 

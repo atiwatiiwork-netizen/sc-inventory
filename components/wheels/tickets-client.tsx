@@ -7,9 +7,13 @@ import {
   STATUS_META,
   SOURCE_TH,
   TICKET_STATUSES,
+  CATEGORY_TH,
+  categoryOfKind,
+  urgencyBadge,
   timingLabel,
   suggestRefill,
   type ProductionTicket,
+  type ProductCategory,
   type TicketDraft,
   type TicketProductKind,
   type TicketStatus,
@@ -23,11 +27,15 @@ export function TicketsClient({ tickets, products, lineReady }: { tickets: Produ
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState<"open" | "all">("open");
+  const [catFilter, setCatFilter] = useState<"all" | ProductCategory>("all");
 
   const openCount = tickets.filter((t) => t.status === "open" || t.status === "in_review").length;
   const shown = useMemo(
-    () => (filter === "open" ? tickets.filter((t) => t.status === "open" || t.status === "in_review") : tickets),
-    [tickets, filter],
+    () =>
+      tickets
+        .filter((t) => (filter === "open" ? t.status === "open" || t.status === "in_review" : true))
+        .filter((t) => catFilter === "all" || categoryOfKind(t.product_kind) === catFilter),
+    [tickets, filter, catFilter],
   );
 
   return (
@@ -47,13 +55,20 @@ export function TicketsClient({ tickets, products, lineReady }: { tickets: Produ
         คำขอให้ผลิตเติม (จากการเช็คสต็อก หรือสร้างเอง) สำหรับให้คนพิจารณา · ไม่ใช่คำสั่งผลิตอัตโนมัติ · ไม่ตัดสต็อกและไม่ผูกกับแผนงาน
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         <Btn kind={filter === "open" ? "primary" : "default"} size="sm" onClick={() => setFilter("open")}>
           ที่ต้องดำเนินการ ({openCount})
         </Btn>
         <Btn kind={filter === "all" ? "primary" : "default"} size="sm" onClick={() => setFilter("all")}>
           ทั้งหมด ({tickets.length})
         </Btn>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        {(["all", "wheel", "assembly"] as const).map((c) => (
+          <Btn key={c} kind={catFilter === c ? "primary" : "default"} size="sm" onClick={() => setCatFilter(c)}>
+            {c === "all" ? "ทุกประเภท" : CATEGORY_TH[c]}
+          </Btn>
+        ))}
       </div>
 
       <Panel pad={0}>
@@ -91,23 +106,30 @@ function TicketRow({ t, last, lineReady, onChanged }: { t: ProductionTicket; las
     setMsg(r.ok ? "ส่ง LINE แล้ว" : r.error || "ส่ง LINE ไม่สำเร็จ");
   });
 
+  const urg = urgencyBadge(t);
+  const shortage = t.requested_qty - t.current_stock;
+
   return (
-    <div style={{ padding: "14px 16px", borderBottom: last ? "none" : "1px solid var(--surface-3)", opacity: muted ? 0.65 : 1 }}>
+    <div style={{ padding: "14px 16px", borderBottom: last ? "none" : "1px solid var(--surface-3)", opacity: muted ? 0.65 : 1, borderLeft: !muted && urg.urgent ? "4px solid var(--amber-ink)" : undefined }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{t.display_name}</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{t.display_name} <span className="en" style={{ fontSize: 11 }}>{CATEGORY_TH[categoryOfKind(t.product_kind)]}</span></div>
           <div className="mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 2 }}>
             {t.sku} · {SOURCE_TH[t.source]} · {t.ticket_date}{t.created_by ? ` · ${t.created_by}` : ""}
           </div>
           <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 6, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
             <span>สต็อกตอนออกตั๋ว: <b className="tnum">{t.current_stock.toLocaleString()}</b> / ขั้นต่ำ {t.min_stock.toLocaleString()} {t.unit}</span>
             <span>ลูกค้าขอ: <b className="tnum">{t.requested_qty.toLocaleString()}</b> {t.unit}</span>
+            {t.source === "stock_check" && shortage > 0 && <span style={{ color: "var(--red-ink)", fontWeight: 600 }}>ขาด: {shortage.toLocaleString()} {t.unit}</span>}
             <span>ควรทำเติม: <b className="tnum" style={{ color: "var(--accent)" }}>{t.suggested_qty.toLocaleString()}</b> {t.unit}</span>
             <span>กำหนด: {timingLabel(t.timing_kind, t.timing_date, t.timing_hours)}</span>
           </div>
           {t.note ? <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 4 }}>📝 {t.note}</div> : null}
         </div>
-        <span className={`pill ${meta.pill}`} style={{ flex: "none" }}>{meta.th}</span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flex: "none" }}>
+          <span className={`pill ${meta.pill}`}>{meta.th}</span>
+          {!muted && <span className={`pill ${urg.pill}`} style={{ fontSize: 11 }}>{urg.label}</span>}
+        </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
