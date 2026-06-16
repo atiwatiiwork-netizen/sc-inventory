@@ -54,6 +54,46 @@ export async function saveRawWheel(input: RawInput): Promise<ActionResult> {
   return { ok: true };
 }
 
+export type BulkResult = { ok: boolean; created: number; skipped: { sku: string; reason: string }[]; error?: string };
+
+/**
+ * Create many raw wheels at once (catalog bulk add). Inserts row-by-row so one
+ * duplicate (dup SKU or dup finish×size×groove → 23505) is skipped, not fatal.
+ * Does not touch movement/stock logic.
+ */
+export async function saveRawWheelsBulk(inputs: RawInput[]): Promise<BulkResult> {
+  const supabase = await createClient();
+  const rows = inputs.filter((i) => i.sku.trim() && i.finish && i.size && i.groove);
+  if (rows.length === 0) return { ok: false, created: 0, skipped: [], error: "ไม่มีรายการให้สร้าง" };
+
+  let created = 0;
+  const skipped: { sku: string; reason: string }[] = [];
+
+  for (const input of rows) {
+    const { error } = await supabase.from("wheels_raw").insert({
+      sku: input.sku.trim(),
+      name: input.name.trim() || null,
+      finish: input.finish,
+      size: input.size,
+      groove: input.groove,
+      unit: input.unit.trim() || "ลูก",
+      min_stock: input.min_stock || 0,
+      display_order: input.display_order || 0,
+      active: input.active,
+      archived: false,
+    });
+    if (error) {
+      skipped.push({ sku: input.sku.trim(), reason: error.code === DUP ? "มีอยู่แล้ว (SKU หรือชุดซ้ำ)" : error.message });
+    } else {
+      created += 1;
+    }
+  }
+
+  revalidatePath("/admin/wheels/raw");
+  revalidatePath("/admin/wheels");
+  return { ok: created > 0, created, skipped };
+}
+
 /** Delete only if no box or BOM line references this raw wheel. */
 export async function deleteRawWheel(id: string): Promise<ActionResult> {
   const supabase = await createClient();

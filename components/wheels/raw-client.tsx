@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { WheelLookup, WheelRaw } from "@/lib/wheels/types";
 import { suggestRawSku } from "@/lib/wheels/sku";
 import { groupRawWheels, flattenGroups } from "@/lib/wheels/grouping";
+import { RawBulkClient } from "@/components/wheels/raw-bulk-client";
 import { Icon } from "@/components/icon";
 import { Btn, DataTable, Field, Modal, Panel, ScreenHead, SearchBox, SelectInput, TextInput, Toggle } from "@/components/ui";
 import { saveRawWheel, deleteRawWheel, type RawInput } from "@/app/admin/(console)/wheels/raw/actions";
@@ -24,6 +25,7 @@ export function RawClient({
 }) {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
+  const [bulk, setBulk] = useState(false);
   const router = useRouter();
 
   const lk = (rows: WheelLookup[], id: string) => rows.find((r) => r.id === id);
@@ -42,15 +44,32 @@ export function RawClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderedRaw, q]);
 
+  if (bulk)
+    return (
+      <RawBulkClient
+        raw={raw}
+        finishes={finishes}
+        sizes={sizes}
+        grooves={grooves}
+        onClose={() => setBulk(false)}
+        onDone={() => router.refresh()}
+      />
+    );
+
   return (
     <div className="fade-up">
       <ScreenHead
         th="ล้อดิบ"
         en={`Raw Wheels · ${activeCount} SKU`}
         right={
-          <Btn kind="primary" icon="plus" size="sm" onClick={() => setEditing("new")}>
-            เพิ่มล้อดิบ
-          </Btn>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn kind="default" icon="grid" size="sm" onClick={() => setBulk(true)}>
+              เพิ่มหลายรายการ
+            </Btn>
+            <Btn kind="primary" icon="plus" size="sm" onClick={() => setEditing("new")}>
+              เพิ่มล้อดิบ
+            </Btn>
+          </div>
         }
       />
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
