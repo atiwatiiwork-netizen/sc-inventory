@@ -264,3 +264,87 @@ export async function finishJob(id: string): Promise<TicketResult> {
   revalidatePath("/admin/wheels/tickets");
   return { ok: true, lineSent: lr.ok, lineError: lr.ok ? undefined : lr.error };
 }
+
+/* ---- Grouped (batch) start/finish ----------------------------------------
+ * Display aggregation only: each ticket row stays separate in the DB; these
+ * actions update every ticket in a same-product group and send ONE combined
+ * LINE message. Still pure visibility — no stock/production effect.
+ * ------------------------------------------------------------------------- */
+async function loadJobBatch(ids: string[]) {
+  const session = await getWorkerSession();
+  if (!session) return { error: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" as const };
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return { error: "ยังไม่ได้ตั้งค่า Supabase — ดูไฟล์ README" as const };
+  if (!(await canUseWheelsFunction(session.id, "wheels-job-ticket"))) {
+    return { error: "บัญชีของคุณไม่ได้รับสิทธิ์ใช้งานตั๋วสั่งงาน — ติดต่อผู้ดูแล" as const };
+  }
+  if (!ids.length) return { error: "ไม่พบตั๋ว" as const };
+  const supabase = createServiceClient();
+  const { data } = await supabase.from("wheels_production_tickets").select("*").in("id", ids);
+  const tickets = (data ?? []) as ProductionTicket[];
+  if (tickets.length === 0) return { error: "ไม่พบตั๋ว" as const };
+  return { session, supabase, tickets };
+}
+
+/** Start every WAITING ticket in a group; one combined LINE message. */
+export async function startJobs(ids: string[]): Promise<TicketResult> {
+  const r = await loadJobBatch(ids);
+  if ("error" in r) return { ok: false, error: r.error };
+  const { session, supabase, tickets } = r;
+  const targets = tickets.filter((t) => t.work_status === "waiting");
+  if (targets.length === 0) return { ok: false, error: "ไม่มีตั๋วที่รอเริ่มงานในกลุ่มนี้" };
+
+  const startedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("wheels_production_tickets")
+    .update({ work_status: "in_progress", started_at: startedAt, started_by: session.code, updated_by: session.code, updated_at: startedAt })
+    .in("id", targets.map((t) => t.id));
+  if (error) return { ok: false, error: error.message };
+
+  const head = targets[0];
+  const lr = await sendJobLine("start", {
+    displayName: head.display_name,
+    category: categoryOfKind(head.product_kind),
+    quantity: targets.reduce((s, t) => s + jobQty(t), 0),
+    unit: head.unit,
+    startedAt,
+    startedBy: session.code,
+    ticketCount: targets.length,
+  });
+  revalidatePath("/worker/wheels/job-ticket");
+  revalidatePath("/admin/wheels/tickets");
+  return { ok: true, lineSent: lr.ok, lineError: lr.ok ? undefined : lr.error };
+}
+
+/** Finish every IN-PROGRESS ticket in a group; one combined LINE message. */
+export async function finishJobs(ids: string[]): Promise<TicketResult> {
+  const r = await loadJobBatch(ids);
+  if ("error" in r) return { ok: false, error: r.error };
+  const { session, supabase, tickets } = r;
+  const targets = tickets.filter((t) => t.work_status === "in_progress");
+  if (targets.length === 0) return { ok: false, error: "ไม่มีตั๋วที่กำลังทำในกลุ่มนี้" };
+
+  const finishedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("wheels_production_tickets")
+    .update({ work_status: "done", finished_at: finishedAt, finished_by: session.code, updated_by: session.code, updated_at: finishedAt })
+    .in("id", targets.map((t) => t.id));
+  if (error) return { ok: false, error: error.message };
+
+  const head = targets[0];
+  const earliestStart = targets.map((t) => t.started_at).filter(Boolean).sort()[0] ?? finishedAt;
+  const lr = await sendJobLine("finish", {
+    displayName: head.display_name,
+    category: categoryOfKind(head.product_kind),
+    quantity: targets.reduce((s, t) => s + jobQty(t), 0),
+    unit: head.unit,
+    startedAt: earliestStart,
+    startedBy: null,
+    finishedAt,
+    finishedBy: session.code,
+    duration: formatDuration(earliestStart, finishedAt),
+    ticketCount: targets.length,
+  });
+  revalidatePath("/worker/wheels/job-ticket");
+  revalidatePath("/admin/wheels/tickets");
+  return { ok: true, lineSent: lr.ok, lineError: lr.ok ? undefined : lr.error };
+}

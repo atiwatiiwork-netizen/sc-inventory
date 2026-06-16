@@ -31,6 +31,7 @@ export default async function JobTicketPage() {
 
   const cards: JobCard[] = ((tickets.data ?? []) as ProductionTicket[]).map((t) => ({
     id: t.id,
+    productId: t.product_id,
     name: t.display_name,
     category: categoryOfKind(t.product_kind),
     quantity: t.suggested_qty || t.requested_qty,

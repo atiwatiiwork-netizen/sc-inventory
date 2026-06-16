@@ -63,31 +63,35 @@ const fmtTs = (iso: string | null) =>
 export type JobLineFields = {
   displayName: string;
   category: ProductCategory;
-  quantity: number;
+  quantity: number; // total quantity (sum across the grouped tickets, or the single ticket)
   unit: string;
   startedAt: string | null;
   startedBy: string | null;
   finishedAt?: string | null;
   finishedBy?: string | null;
   duration?: string | null;
+  ticketCount?: number; // > 1 → grouped action (one combined message)
 };
 
 /**
  * Manual job-event LINE notification (งานเริ่มแล้ว / งานเสร็จแล้ว). Fired only on a
  * user's start/finish click — never on page load. Reuses the existing LINE infra
- * and never blocks the status change.
+ * and never blocks the status change. A grouped action (ticketCount > 1) sends a
+ * single combined message, not one per ticket.
  */
 export async function sendJobLine(event: "start" | "finish", f: JobLineFields): Promise<{ ok: boolean; error?: string }> {
   try {
     const s = await getLineSettings(createServiceClient());
     if (!s.enabled || !s.token || !s.recipientId) return { ok: false, error: "LINE ยังไม่พร้อม" };
+    const grouped = (f.ticketCount ?? 1) > 1;
     const lines = [
       event === "start" ? "▶️ งานเริ่มแล้ว (SC Wheels)" : "✅ งานเสร็จแล้ว (SC Wheels)",
       `สินค้า: ${f.displayName}`,
       `ประเภท: ${CATEGORY_TH[f.category]}`,
-      `จำนวน: ${f.quantity.toLocaleString()} ${f.unit}`,
-      `เริ่ม: ${fmtTs(f.startedAt)}${f.startedBy ? ` · ${f.startedBy}` : ""}`,
+      grouped ? `รวม: ${f.quantity.toLocaleString()} ${f.unit}` : `จำนวน: ${f.quantity.toLocaleString()} ${f.unit}`,
     ];
+    if (grouped) lines.push(`จาก ${f.ticketCount} ตั๋ว`);
+    lines.push(`เริ่ม: ${fmtTs(f.startedAt)}${f.startedBy ? ` · ${f.startedBy}` : ""}`);
     if (event === "finish") {
       lines.push(`เสร็จ: ${fmtTs(f.finishedAt ?? null)}${f.finishedBy ? ` · ${f.finishedBy}` : ""}`);
       if (f.duration) lines.push(`ใช้เวลา: ${f.duration}`);
