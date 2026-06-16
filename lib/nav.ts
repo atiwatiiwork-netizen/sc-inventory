@@ -40,7 +40,10 @@ export const NAV: NavGroup[] = [
 export const WHEELS_NAV: NavGroup[] = [
   {
     group: "ภาพรวม",
-    items: [{ id: "wheels-home", th: "ภาพรวม SC Wheels", en: "Overview", icon: "dashboard", href: "/admin/wheels" }],
+    items: [
+      { id: "wheels-home", th: "ภาพรวม SC Wheels", en: "Overview", icon: "dashboard", href: "/admin/wheels" },
+      { id: "wheels-stock-check", th: "เช็คสต็อกพร้อมขาย", en: "Stock Check", icon: "grid", href: "/admin/wheels/stock-check" },
+    ],
   },
   {
     group: "การเคลื่อนไหวสต็อก",
