@@ -13,8 +13,13 @@ export default async function AdminConsoleLayout({ children }: { children: React
   } = await supabase.auth.getUser();
   if (!user) redirect("/admin/login");
 
-  const { data: profile } = await supabase.from("profiles").select("name").eq("id", user.id).maybeSingle();
+  const { data: profile } = await supabase.from("profiles").select("name, role").eq("id", user.id).maybeSingle();
   const name = profile?.name || user.email || "ผู้ดูแล";
+  const isAdmin = (profile?.role ?? "admin") === "admin";
 
-  return <AdminShell profileName={name}>{children}</AdminShell>;
+  return (
+    <AdminShell profileName={name} isAdmin={isAdmin}>
+      {children}
+    </AdminShell>
+  );
 }

@@ -1,7 +1,10 @@
 import type { IconName } from "@/components/icon";
 
-export type NavItem = { id: string; th: string; en: string; icon: IconName; href: string };
+export type NavItem = { id: string; th: string; en: string; icon: IconName; href: string; adminOnly?: boolean };
 export type NavGroup = { group: string; items: NavItem[] };
+
+/** A top-level module reachable from the admin module switcher. */
+export type ModuleDef = { id: string; th: string; en: string; icon: IconName; home: string; nav: NavGroup[] };
 
 /** Admin sidebar navigation (mirrors the prototype's NAV). */
 export const NAV: NavGroup[] = [
@@ -32,6 +35,45 @@ export const NAV: NavGroup[] = [
     ],
   },
 ];
+
+/** SC Wheels module sidebar navigation (Phase 1 — catalog only). */
+export const WHEELS_NAV: NavGroup[] = [
+  {
+    group: "ภาพรวม",
+    items: [{ id: "wheels-home", th: "ภาพรวม SC Wheels", en: "Overview", icon: "dashboard", href: "/admin/wheels" }],
+  },
+  {
+    group: "การเคลื่อนไหวสต็อก",
+    items: [
+      { id: "wheels-receiving", th: "รับล้อดิบเข้า", en: "Raw Receiving", icon: "download", href: "/admin/wheels/receiving" },
+      { id: "wheels-sales", th: "บันทึกการขาย", en: "Sales", icon: "store", href: "/admin/wheels/sales" },
+      { id: "wheels-raw-sales", th: "ขายล้อดิบ (พิเศษ)", en: "Raw-Wheel Sale", icon: "bolt", href: "/admin/wheels/raw-sales", adminOnly: true },
+    ],
+  },
+  {
+    group: "แคตตาล็อกสินค้า",
+    items: [
+      { id: "wheels-raw", th: "ล้อดิบ", en: "Raw Wheels", icon: "settings", href: "/admin/wheels/raw" },
+      { id: "wheels-boxes", th: "กล่องบรรจุ", en: "Packed Boxes", icon: "box", href: "/admin/wheels/boxes" },
+      { id: "wheels-assemblies", th: "สินค้าประกอบ", en: "Assemblies", icon: "layers", href: "/admin/wheels/assemblies" },
+    ],
+  },
+];
+
+/**
+ * Top-level modules sharing the admin shell. The module switcher in the
+ * sidebar lets the admin move between SC Inventory and SC Wheels; each module
+ * brings its own nav (above). SC Inventory's screens are unchanged.
+ */
+export const MODULES: ModuleDef[] = [
+  { id: "inventory", th: "SC Inventory", en: "Inventory", icon: "grid", home: "/admin", nav: NAV },
+  { id: "wheels", th: "SC Wheels", en: "Manufacturing", icon: "settings", home: "/admin/wheels", nav: WHEELS_NAV },
+];
+
+/** Resolve which module owns a given pathname (defaults to SC Inventory). */
+export function moduleForPath(pathname: string): ModuleDef {
+  return pathname.startsWith("/admin/wheels") ? MODULES[1] : MODULES[0];
+}
 
 /** Per-category icon + accent colour (matches the prototype). */
 export const CAT_ICON: Record<string, IconName> = {

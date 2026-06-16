@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition, type ReactNode } from "react";
-import { NAV } from "@/lib/nav";
+import { MODULES, moduleForPath } from "@/lib/nav";
 import { Icon } from "@/components/icon";
 import { adminSignOut } from "@/app/auth/actions";
 
-export function AdminShell({ profileName, children }: { profileName: string; children: ReactNode }) {
+export function AdminShell({ profileName, isAdmin = true, children }: { profileName: string; isAdmin?: boolean; children: ReactNode }) {
   const pathname = usePathname();
-  const items = NAV.flatMap((g) => g.items.map((it) => ({ ...it, group: g.group })));
+  const mod = moduleForPath(pathname);
+  // hide admin-only items (e.g. exceptional raw-wheel sale) from office users
+  const nav = mod.nav
+    .map((g) => ({ ...g, items: g.items.filter((it) => isAdmin || !it.adminOnly) }))
+    .filter((g) => g.items.length > 0);
+  const items = nav.flatMap((g) => g.items.map((it) => ({ ...it, group: g.group })));
   // longest matching href wins so /admin/products beats /admin
   const active = items
     .filter((it) => pathname === it.href || (it.href !== "/admin" && pathname.startsWith(it.href)))
@@ -51,15 +56,47 @@ export function AdminShell({ profileName, children }: { profileName: string; chi
             SC
           </div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.1 }}>SC Inventory</div>
+            <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.1 }}>{mod.th}</div>
             <div className="en" style={{ fontSize: 10.5 }}>
               Admin Console
             </div>
           </div>
         </div>
 
+        {/* module switcher */}
+        <div style={{ display: "flex", gap: 6, padding: "12px 12px 0" }}>
+          {MODULES.map((m) => {
+            const on = m.id === mod.id;
+            return (
+              <Link
+                key={m.id}
+                href={m.home}
+                className="focusable"
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  padding: "8px 6px",
+                  borderRadius: 9,
+                  textDecoration: "none",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: on ? "var(--accent-soft)" : "var(--surface-3)",
+                  color: on ? "var(--accent-ink)" : "var(--ink-3)",
+                  border: on ? "1px solid var(--accent-soft-2)" : "1px solid transparent",
+                }}
+              >
+                <Icon name={m.icon} size={15} style={{ color: on ? "var(--accent)" : "var(--ink-4)", flex: "none" }} />
+                {m.th}
+              </Link>
+            );
+          })}
+        </div>
+
         <nav className="scroll" style={{ flex: 1, overflowY: "auto", padding: "12px 12px 18px" }}>
-          {NAV.map((grp) => (
+          {nav.map((grp) => (
             <div key={grp.group} style={{ marginBottom: 14 }}>
               <div
                 style={{
