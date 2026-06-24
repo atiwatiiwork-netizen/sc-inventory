@@ -62,9 +62,12 @@ async function finish(supabase: SupabaseClient, kind: string, periodKey: string,
   await supabase.from("notification_logs").update({ status, detail: detail?.slice(0, 500), updated_at: new Date().toISOString() }).eq("kind", kind).eq("period_key", periodKey);
 }
 
+/** Readiness gate for SCHEDULED (auto) sends: needs the master switch, a
+ *  configured recipient, and the auto-send switch all on. */
 function ready(s: LineSettings): SendResult | null {
   if (!s.enabled) return { status: "skipped", reason: "การส่งถูกปิดอยู่" };
   if (!s.token || !s.recipientId) return { status: "skipped", reason: "ยังไม่ได้ตั้งค่า token หรือผู้รับ" };
+  if (!s.autoSend) return { status: "skipped", reason: "ปิดการส่งอัตโนมัติตามเวลา" };
   return null;
 }
 
@@ -145,7 +148,7 @@ export async function maybeSendDailyAfterSubmit(): Promise<void> {
   try {
     const supabase = createServiceClient();
     const s = await getLineSettings(supabase);
-    if (!s.enabled || s.dailyTrigger !== "after") return;
+    if (!s.enabled || !s.autoSend || s.dailyTrigger !== "after") return;
     const ws = await getWorkerStatusToday(supabase, todayISO());
     if (ws.length === 0 || ws.some((w) => w.status !== "submitted")) return; // not everyone in yet
     await sendDaily();

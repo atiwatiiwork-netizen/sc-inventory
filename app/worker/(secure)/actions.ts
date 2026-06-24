@@ -77,6 +77,9 @@ export async function sendCategoryLine(input: { date: string; categoryId: string
   if (!settings.enabled || !settings.token || !settings.recipientId) {
     return { ok: false, error: "ยังไม่ได้ตั้งค่า/เปิดใช้งาน LINE (ตั้งค่าที่ฝั่งผู้ดูแล)" };
   }
+  if (!settings.workerSend) {
+    return { ok: false, error: "การส่ง LINE ฝั่งพนักงานถูกปิดอยู่ (เปิดได้ที่ฝั่งผู้ดูแล)" };
+  }
 
   // completeness: recorded for every active customer group
   const [{ data: groups }, { count: marks }] = await Promise.all([

@@ -6,7 +6,9 @@ export type LowstockMode = "digest" | "immediate" | "off";
 export type DailyTrigger = "after" | "fixed";
 
 export type LineSettings = {
-  enabled: boolean;
+  enabled: boolean; // master switch — LINE integration active (gates ALL sends)
+  autoSend: boolean; // scheduled auto reports (daily/weekly/monthly + after-submit daily)
+  workerSend: boolean; // allow worker-initiated per-category push from the worker app
   token: string;
   recipientId: string;
   recipientName: string;
@@ -25,6 +27,8 @@ export type LineSettings = {
 
 export const DEFAULT_LINE_SETTINGS: LineSettings = {
   enabled: false,
+  autoSend: false, // scheduled sending is opt-in
+  workerSend: true, // worker-initiated push is on once LINE is enabled
   token: "",
   recipientId: "",
   recipientName: "กลุ่มผู้ดูแลโรงงาน SC",

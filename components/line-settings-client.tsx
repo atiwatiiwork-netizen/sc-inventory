@@ -73,13 +73,43 @@ export function LineSettingsClient({ initial, preview }: { initial: LineSettings
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* connection */}
           <Panel title="การเชื่อมต่อ" en="Connection">
-            <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 14.5, fontWeight: 600 }}>เปิดส่งรายงานอัตโนมัติ</div>
-                <div className="en" style={{ fontSize: 12 }}>Auto-send reports</div>
+                <div style={{ fontSize: 14.5, fontWeight: 600 }}>เปิดใช้งาน LINE</div>
+                <div className="en" style={{ fontSize: 12 }}>Enable LINE integration · ปิดแล้วจะไม่ส่งทุกชนิด</div>
               </div>
               <Toggle on={f.enabled} onChange={(v) => up("enabled", v)} />
             </label>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                padding: "12px 14px",
+                marginBottom: 16,
+                borderRadius: 10,
+                background: "var(--surface-2)",
+                opacity: f.enabled ? 1 : 0.5,
+                pointerEvents: f.enabled ? "auto" : "none",
+              }}
+            >
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>ส่งรายงานอัตโนมัติตามเวลา</div>
+                  <div className="en" style={{ fontSize: 11.5 }}>Scheduled auto reports · รายวัน/สัปดาห์/เดือน</div>
+                </div>
+                <Toggle on={f.autoSend} onChange={(v) => up("autoSend", v)} />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>ให้พนักงานกดส่งสรุปเข้า LINE</div>
+                  <div className="en" style={{ fontSize: 11.5 }}>Allow worker-initiated sends</div>
+                </div>
+                <Toggle on={f.workerSend} onChange={(v) => up("workerSend", v)} />
+              </label>
+            </div>
+
             <Field label="Channel Access Token" en="LINE Messaging API">
               <TextInput value={f.token} onChange={(e) => up("token", e.target.value)} placeholder="วาง token จาก LINE Developers" />
             </Field>
@@ -138,7 +168,8 @@ export function LineSettingsClient({ initial, preview }: { initial: LineSettings
               <Row icon="calendar" label="รายเดือน" value="วันที่ 1 เวลา 08:00 น." />
             </div>
             <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8, lineHeight: 1.6 }}>
-              เวลาส่งตามตารางกำหนดผ่าน Vercel Cron (ไฟล์ <span className="mono">vercel.json</span>) · การเปลี่ยนเวลาต้องแก้ไฟล์แล้ว deploy ใหม่ ·
+              ตารางนี้จะทำงานเฉพาะเมื่อเปิด <strong>&ldquo;ส่งรายงานอัตโนมัติตามเวลา&rdquo;</strong> ในส่วนการเชื่อมต่อ ·
+              เวลาส่งกำหนดผ่าน Vercel Cron (ไฟล์ <span className="mono">vercel.json</span>) · การเปลี่ยนเวลาต้องแก้ไฟล์แล้ว deploy ใหม่ ·
               รายงานเป็นข้อความล้วน (ไม่ใช่รูปภาพ)
             </div>
           </Panel>
